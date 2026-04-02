@@ -22,8 +22,16 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: Django project initialized (config project + manage.py).
 - Completed: Environment-based settings prepared (.env, .env.example, PostgreSQL config).
 - Completed: API bootstrap routes added (/api, /health).
-- Pending: database migration execution (blocked by local PostgreSQL connectivity timeout).
-- Pending: app modularization and base auth implementation.
+- Completed: modular apps created (accounts, organization, academics, enrollment).
+- Completed: base auth endpoints scaffolded (/api/auth/login, /api/auth/logout, /api/auth/me).
+- Completed: auth password flows implemented (/api/auth/forgot-password, /api/auth/reset-password, /api/auth/change-password).
+- Completed: OpenAPI schema and docs routes wired (/api/schema, /api/docs).
+- Completed: initial model migrations generated.
+- Completed: local migration validation via SQLite override.
+- Completed: role seeding/admin bootstrap command implemented and validated (seed_phase1).
+- Completed: organization read endpoints implemented with scoped access filtering (/api/organization/university, /api/organization/faculties, /api/organization/departments).
+- Completed: Phase 1 API tests expanded (accounts + organization) and passing.
+- Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
 
@@ -35,14 +43,22 @@ Overall Status: ACTIVE DEVELOPMENT
 - [x] Django-mapped documentation created
 - [x] Django project initialized
 - [x] requirements files finalized
-- [ ] PostgreSQL settings configured
 - [x] PostgreSQL settings configured
 - [x] health endpoint available
-- [ ] auth base endpoints scaffolded
+- [x] auth base endpoints scaffolded
+- [x] organization read endpoints scaffolded with scope-aware filtering
+- [x] role seeding command available
+- [x] auth password flows implemented
+
+## Additional Completed in Phase 1
+
+- [x] Core domain models scaffolded for organization, academics, enrollment, and RBAC foundations
+- [x] API schema/docs endpoints configured
+- [x] Initial auth and organization endpoint tests added and passing (SQLite)
 
 ## Next Immediate Steps
 
-1. Ensure local PostgreSQL is reachable for unione_db and run migrations.
-2. Create modular Django apps (accounts, organization, academics, enrollment).
-3. Scaffold auth endpoints under /api/auth.
-4. Add OpenAPI schema and API docs routes.
+1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
+2. Start Phase 2 student read endpoints: /api/student/profile, /api/student/enrollments, /api/student/grades.
+3. Add seed fixtures for baseline university/faculty/department/course/term data.
+4. Introduce service layer for enrollment read/query logic.
