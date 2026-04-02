@@ -1,0 +1,6 @@
+Django>=5.0
+djangorestframework
+django-filter
+drf-spectacular
+psycopg[binary]
+python-dotenv
