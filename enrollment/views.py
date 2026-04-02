@@ -2,7 +2,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAnyRole
-from academics.models import Grade
+from academics.models import AcademicTerm, Grade, Section
 
 from .models import CourseEnrollment
 from .serializers import EnrollmentSerializer, GradeSerializer, StudentProfileSerializer
@@ -112,3 +112,67 @@ class StudentGradeView(APIView):
 			)
 
 		return Response({'status': 'success', 'data': GradeSerializer(data, many=True).data})
+
+
+class StudentAcademicTermsView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, _request):
+		queryset = AcademicTerm.objects.all().order_by('-start_date')
+		data = [
+			{
+				'id': term.id,
+				'name': term.name,
+				'start_date': term.start_date,
+				'end_date': term.end_date,
+				'registration_start': term.registration_start,
+				'registration_end': term.registration_end,
+				'is_active': term.is_active,
+			}
+			for term in queryset
+		]
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentSectionsView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		queryset = Section.objects.select_related(
+			'course',
+			'professor__user',
+			'academic_term',
+		).order_by('id')
+
+		academic_term_id = request.query_params.get('academic_term_id')
+		if academic_term_id:
+			queryset = queryset.filter(academic_term_id=academic_term_id)
+
+		data = []
+		for section in queryset:
+			professor = section.professor
+			data.append(
+				{
+					'id': section.id,
+					'semester': section.semester,
+					'capacity': section.capacity,
+					'schedule': section.schedule,
+					'course': {
+						'id': section.course.id,
+						'code': section.course.code,
+						'name': section.course.name,
+						'credit_hours': section.course.credit_hours,
+					},
+					'professor': {
+						'id': professor.id,
+						'name': professor.user.get_full_name() or professor.user.username,
+						'staff_number': professor.staff_number,
+					},
+					'academic_term': {
+						'id': section.academic_term.id,
+						'name': section.academic_term.name,
+					},
+				}
+			)
+
+		return Response({'status': 'success', 'data': data})

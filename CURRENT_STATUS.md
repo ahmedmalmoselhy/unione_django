@@ -32,6 +32,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: organization read endpoints implemented with scoped access filtering (/api/organization/university, /api/organization/faculties, /api/organization/departments).
 - Completed: Phase 1 API tests expanded (accounts + organization) and passing.
 - Completed: Phase 2 student read endpoints implemented (/api/student/profile, /api/student/enrollments, /api/student/grades).
+- Completed: Phase 2 section and term read endpoints implemented (/api/student/sections, /api/student/academic-terms).
 - Completed: Grade model added for academic results storage.
 - Completed: Phase 2 student API tests added and passing.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
@@ -53,6 +54,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - [x] role seeding command available
 - [x] auth password flows implemented
 - [x] student read endpoints implemented
+- [x] section and term read endpoints implemented
 
 ## Additional Completed in Phase 1
 
@@ -60,6 +62,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - [x] API schema/docs endpoints configured
 - [x] Initial auth and organization endpoint tests added and passing (SQLite)
 - [x] Student read API tests added and passing (SQLite)
+- [x] Student section/term API tests added and passing (SQLite)
 
 ## Next Immediate Steps
 

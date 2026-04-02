@@ -19,6 +19,8 @@ Base path: /api
 - POST /api/student/enrollments
 - DELETE /api/student/enrollments/{id}
 - GET /api/student/grades
+- GET /api/student/academic-terms
+- GET /api/student/sections
 - GET /api/student/transcript
 - GET /api/student/transcript/pdf
 - GET /api/student/academic-history
