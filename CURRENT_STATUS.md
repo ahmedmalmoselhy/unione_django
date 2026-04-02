@@ -1,7 +1,7 @@
 # UniOne Django - Current Status
 
 Last Updated: April 2, 2026
-Project Phase: Phase 1 Foundation
+Project Phase: Phase 2 Student Core
 Overall Status: ACTIVE DEVELOPMENT
 
 ## Status Maintenance Rule
@@ -31,6 +31,9 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: role seeding/admin bootstrap command implemented and validated (seed_phase1).
 - Completed: organization read endpoints implemented with scoped access filtering (/api/organization/university, /api/organization/faculties, /api/organization/departments).
 - Completed: Phase 1 API tests expanded (accounts + organization) and passing.
+- Completed: Phase 2 student read endpoints implemented (/api/student/profile, /api/student/enrollments, /api/student/grades).
+- Completed: Grade model added for academic results storage.
+- Completed: Phase 2 student API tests added and passing.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -49,16 +52,18 @@ Overall Status: ACTIVE DEVELOPMENT
 - [x] organization read endpoints scaffolded with scope-aware filtering
 - [x] role seeding command available
 - [x] auth password flows implemented
+- [x] student read endpoints implemented
 
 ## Additional Completed in Phase 1
 
 - [x] Core domain models scaffolded for organization, academics, enrollment, and RBAC foundations
 - [x] API schema/docs endpoints configured
 - [x] Initial auth and organization endpoint tests added and passing (SQLite)
+- [x] Student read API tests added and passing (SQLite)
 
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Start Phase 2 student read endpoints: /api/student/profile, /api/student/enrollments, /api/student/grades.
-3. Add seed fixtures for baseline university/faculty/department/course/term data.
-4. Introduce service layer for enrollment read/query logic.
+2. Add seed fixtures for baseline university/faculty/department/course/term data.
+3. Introduce service layer for enrollment read/query logic.
+4. Expand Phase 2 into transcript and schedule export endpoints.
