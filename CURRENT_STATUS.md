@@ -56,10 +56,12 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: enrollment, attendance, and section announcement domain events now enqueue webhook deliveries.
 - Completed: periodic webhook scheduler command implemented (run_webhook_scheduler) with settings-based runtime controls.
 - Completed: auth token management endpoints implemented (/api/auth/tokens GET/DELETE, /api/auth/tokens/{id} DELETE).
+- Completed: multi-token session parity implemented with custom access-token model and authentication backend.
 - Completed: student section announcements endpoint parity implemented (/api/student/sections/{section_id}/announcements).
 - Completed: admin webhook access parity improved (faculty_admin/department_admin roles + owner-scoped access).
 - Completed: scoped API throttling parity implemented for login/password/enrollment/grade write flows.
 - Completed: shared announcements/notifications response behavior aligned with paginated meta payloads and unread alias support.
+- Completed: global announcements visibility/read parity implemented (university/faculty/department/section targeting with publish/expiry filtering).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -92,6 +94,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Add global announcement domain model parity (university/faculty/department/section visibility and expiry windows).
-3. Add admin/API observability endpoints for webhook processing metrics and recent failures.
-4. Add periodic clean-up/archival command for old webhook deliveries and deployment process-manager config for run_webhook_scheduler.
+2. Add admin/API observability endpoints for webhook processing metrics and recent failures.
+3. Add periodic clean-up/archival command for old webhook deliveries.
+4. Add deployment-level process manager config for run_webhook_scheduler (systemd/supervisor/container entrypoint).
