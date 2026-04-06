@@ -1,5 +1,6 @@
 from django.http import HttpResponse
 from django.db import transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.response import Response
@@ -261,6 +262,31 @@ class StudentEnrollmentView(APIView):
 			},
 			status=status.HTTP_201_CREATED,
 		)
+
+
+class StudentEnrollmentDeleteView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def delete(self, request, enrollment_id):
+		student = request.user.student_profile
+		enrollment = CourseEnrollment.objects.filter(id=enrollment_id, student=student).first()
+		if enrollment is None:
+			return Response(
+				{'status': 'error', 'message': 'Enrollment not found'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		if enrollment.status == CourseEnrollment.EnrollmentStatus.DROPPED:
+			return Response(
+				{'status': 'error', 'message': 'Enrollment already dropped'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		enrollment.status = CourseEnrollment.EnrollmentStatus.DROPPED
+		enrollment.dropped_at = timezone.now()
+		enrollment.save(update_fields=['status', 'dropped_at', 'updated_at'])
+
+		return Response({'status': 'success', 'message': 'Enrollment dropped successfully'})
 
 
 class StudentGradeView(APIView):
