@@ -31,6 +31,44 @@ def _get_professor_profile_or_none(user):
 		return None
 
 
+def _normalize_schedule_slots(schedule):
+	if not isinstance(schedule, dict):
+		return []
+
+	days = schedule.get('days')
+	if not isinstance(days, list):
+		return []
+
+	day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+	start_time = schedule.get('start_time')
+	end_time = schedule.get('end_time')
+
+	slots = []
+	for raw_day in days:
+		try:
+			day_value = int(raw_day)
+		except (TypeError, ValueError):
+			continue
+
+		if 1 <= day_value <= 7:
+			day_index = day_value - 1
+		elif 0 <= day_value <= 6:
+			day_index = day_value
+		else:
+			continue
+
+		slots.append(
+			{
+				'day_index': day_index,
+				'day_name': day_names[day_index],
+				'start_time': start_time,
+				'end_time': end_time,
+			}
+		)
+
+	return slots
+
+
 class StudentProfileView(APIView):
 	permission_classes = [StudentOnlyPermission]
 
@@ -323,5 +361,146 @@ class ProfessorSectionsView(APIView):
 					},
 				}
 			)
+
+		return Response({'status': 'success', 'data': data})
+
+
+class ProfessorScheduleView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response(
+				{'status': 'error', 'message': 'Professor profile not found'},
+				status=404,
+			)
+
+		queryset = (
+			Section.objects.select_related('course', 'academic_term')
+			.filter(professor=profile)
+			.order_by('academic_term__start_date', 'id')
+		)
+
+		academic_term_id = request.query_params.get('academic_term_id')
+		if academic_term_id:
+			queryset = queryset.filter(academic_term_id=academic_term_id)
+
+		data = []
+		for section in queryset:
+			data.append(
+				{
+					'section_id': section.id,
+					'course': {
+						'id': section.course.id,
+						'code': section.course.code,
+						'name': section.course.name,
+					},
+					'academic_term': {
+						'id': section.academic_term.id,
+						'name': section.academic_term.name,
+						'start_date': section.academic_term.start_date,
+						'end_date': section.academic_term.end_date,
+					},
+					'schedule': section.schedule,
+					'slots': _normalize_schedule_slots(section.schedule),
+				}
+			)
+
+		return Response({'status': 'success', 'data': data})
+
+
+class ProfessorSectionStudentsView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response(
+				{'status': 'error', 'message': 'Professor profile not found'},
+				status=404,
+			)
+
+		section = (
+			Section.objects.select_related('course', 'academic_term')
+			.filter(id=section_id, professor=profile)
+			.first()
+		)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=404,
+			)
+
+		enrollments = (
+			CourseEnrollment.objects.select_related(
+				'student__user',
+				'student__faculty',
+				'student__department',
+				'grade',
+			)
+			.filter(section=section)
+			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
+			.order_by('student__student_number')
+		)
+
+		students = []
+		for enrollment in enrollments:
+			student = enrollment.student
+			grade = getattr(enrollment, 'grade', None)
+			students.append(
+				{
+					'enrollment_id': enrollment.id,
+					'enrollment_status': enrollment.status,
+					'registered_at': enrollment.registered_at,
+					'student': {
+						'id': student.id,
+						'student_number': student.student_number,
+						'name': student.user.get_full_name() or student.user.username,
+						'email': student.user.email,
+						'academic_year': student.academic_year,
+						'semester': student.semester,
+						'enrollment_status': student.enrollment_status,
+						'gpa': student.gpa,
+						'academic_standing': student.academic_standing,
+						'faculty': {
+							'id': student.faculty.id,
+							'name': student.faculty.name,
+							'code': student.faculty.code,
+						},
+						'department': {
+							'id': student.department.id,
+							'name': student.department.name,
+							'code': student.department.code,
+						},
+					},
+					'grade': {
+						'points': getattr(grade, 'points', None),
+						'letter_grade': getattr(grade, 'letter_grade', None),
+						'status': getattr(grade, 'status', None),
+					},
+				}
+			)
+
+		data = {
+			'section': {
+				'id': section.id,
+				'semester': section.semester,
+				'capacity': section.capacity,
+				'schedule': section.schedule,
+				'course': {
+					'id': section.course.id,
+					'code': section.course.code,
+					'name': section.course.name,
+				},
+				'academic_term': {
+					'id': section.academic_term.id,
+					'name': section.academic_term.name,
+					'start_date': section.academic_term.start_date,
+					'end_date': section.academic_term.end_date,
+				},
+			},
+			'students': students,
+		}
 
 		return Response({'status': 'success', 'data': data})
