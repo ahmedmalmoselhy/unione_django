@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAnyRole
@@ -232,6 +233,13 @@ class StudentProfileView(APIView):
 
 class StudentEnrollmentView(APIView):
 	permission_classes = [StudentOnlyPermission]
+	throttle_classes = [ScopedRateThrottle]
+
+	def get_throttles(self):
+		if self.request.method.upper() == 'POST':
+			self.throttle_scope = 'api_enroll'
+			return super().get_throttles()
+		return []
 
 	def get(self, request):
 		queryset = CourseEnrollment.objects.select_related(
@@ -447,6 +455,8 @@ class StudentEnrollmentView(APIView):
 
 class StudentEnrollmentDeleteView(APIView):
 	permission_classes = [StudentOnlyPermission]
+	throttle_classes = [ScopedRateThrottle]
+	throttle_scope = 'api_enroll'
 
 	def delete(self, request, enrollment_id):
 		student = request.user.student_profile
@@ -1114,6 +1124,13 @@ class ProfessorSectionStudentsView(APIView):
 
 class ProfessorSectionGradesView(APIView):
 	permission_classes = [ProfessorOnlyPermission]
+	throttle_classes = [ScopedRateThrottle]
+
+	def get_throttles(self):
+		if self.request.method.upper() == 'POST':
+			self.throttle_scope = 'api_grade'
+			return super().get_throttles()
+		return []
 
 	def get(self, request, section_id):
 		profile = _get_professor_profile_or_none(request.user)

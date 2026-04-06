@@ -153,6 +153,12 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
+    'DEFAULT_THROTTLE_RATES': {
+        'api_login': '60/min',
+        'api_password': '60/min',
+        'api_enroll': '20/min',
+        'api_grade': '30/min',
+    },
 }
 
 SPECTACULAR_SETTINGS = {
