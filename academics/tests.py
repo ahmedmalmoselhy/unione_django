@@ -2,9 +2,15 @@ import io
 from urllib.error import HTTPError
 from unittest.mock import patch
 
+from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
+from django.urls import reverse
+from rest_framework import status
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APITestCase
 
+from accounts.models import Role, UserRole
 from academics.models import Webhook, WebhookDelivery
 from academics.webhook_delivery import enqueue_webhook_deliveries, process_single_delivery
 
@@ -111,3 +117,52 @@ class WebhookDeliveryTests(TestCase):
 		self.assertEqual(delivery.attempt_count, 2)
 		self.assertEqual(delivery.status, WebhookDelivery.DeliveryStatus.FAILED)
 		self.assertIsNone(delivery.next_retry_at)
+
+
+class AdminWebhookAccessParityTests(APITestCase):
+	def setUp(self):
+		self.faculty_admin_role = Role.objects.create(name='Faculty Admin', slug='faculty_admin', permissions={})
+		self.department_admin_role = Role.objects.create(name='Department Admin', slug='department_admin', permissions={})
+
+		self.owner_user = User.objects.create_user(username='owner_admin', email='owner_admin@example.com', password='Pass1234!@#')
+		self.other_user = User.objects.create_user(username='other_admin', email='other_admin@example.com', password='Pass1234!@#')
+
+		UserRole.objects.create(user=self.owner_user, role=self.faculty_admin_role)
+		UserRole.objects.create(user=self.other_user, role=self.department_admin_role)
+
+		self.owner_token = Token.objects.create(user=self.owner_user)
+		self.other_token = Token.objects.create(user=self.other_user)
+
+	def test_faculty_admin_can_list_and_create_webhooks(self):
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.owner_token.key}')
+
+		create_response = self.client.post(
+			reverse('admin-webhooks'),
+			{'name': 'Owner Hook', 'target_url': 'https://example.test/hook', 'events': ['enrollment.created']},
+			format='json',
+		)
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+
+		list_response = self.client.get(reverse('admin-webhooks'))
+		self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(list_response.data['data']), 1)
+
+	def test_admin_webhook_access_is_owner_scoped(self):
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.owner_token.key}')
+		create_response = self.client.post(
+			reverse('admin-webhooks'),
+			{'name': 'Private Hook', 'target_url': 'https://example.test/private', 'events': ['announcement.created']},
+			format='json',
+		)
+		webhook_id = create_response.data['data']['id']
+
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.other_token.key}')
+		patch_response = self.client.patch(
+			reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}),
+			{'name': 'Hijacked'},
+			format='json',
+		)
+		self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+
+		delete_response = self.client.delete(reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}))
+		self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND)

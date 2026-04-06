@@ -8,18 +8,21 @@ from academics.models import Webhook, WebhookDelivery
 
 
 class AdminOnlyPermission(HasAnyRole):
-	required_roles = ['admin']
+	required_roles = ['admin', 'faculty_admin', 'department_admin']
 
 
-def _webhook_queryset():
-	return Webhook.objects.filter(deleted_at__isnull=True).order_by('-created_at', '-id')
+def _webhook_queryset_for_user(user):
+	queryset = Webhook.objects.filter(deleted_at__isnull=True)
+	if user.is_superuser:
+		return queryset.order_by('-created_at', '-id')
+	return queryset.filter(created_by=user).order_by('-created_at', '-id')
 
 
 class AdminWebhooksView(APIView):
 	permission_classes = [AdminOnlyPermission]
 
 	def get(self, _request):
-		queryset = _webhook_queryset()
+		queryset = _webhook_queryset_for_user(_request.user)
 		data = [
 			{
 				'id': webhook.id,
@@ -92,7 +95,7 @@ class AdminWebhookDetailView(APIView):
 	permission_classes = [AdminOnlyPermission]
 
 	def patch(self, request, webhook_id):
-		webhook = _webhook_queryset().filter(id=webhook_id).first()
+		webhook = _webhook_queryset_for_user(request.user).filter(id=webhook_id).first()
 		if webhook is None:
 			return Response({'status': 'error', 'message': 'Webhook not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -139,7 +142,7 @@ class AdminWebhookDetailView(APIView):
 		)
 
 	def delete(self, _request, webhook_id):
-		webhook = _webhook_queryset().filter(id=webhook_id).first()
+		webhook = _webhook_queryset_for_user(_request.user).filter(id=webhook_id).first()
 		if webhook is None:
 			return Response({'status': 'error', 'message': 'Webhook not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -154,7 +157,7 @@ class AdminWebhookDeliveriesView(APIView):
 	permission_classes = [AdminOnlyPermission]
 
 	def get(self, request, webhook_id):
-		webhook = _webhook_queryset().filter(id=webhook_id).first()
+		webhook = _webhook_queryset_for_user(request.user).filter(id=webhook_id).first()
 		if webhook is None:
 			return Response({'status': 'error', 'message': 'Webhook not found'}, status=status.HTTP_404_NOT_FOUND)
 
