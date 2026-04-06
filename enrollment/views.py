@@ -14,6 +14,7 @@ from academics.models import (
 	CourseRating,
 	EnrollmentWaitlist,
 	Grade,
+	Notification,
 	Section,
 	SectionAnnouncement,
 )
@@ -111,6 +112,82 @@ def _attendance_records_payload(session):
 			}
 		)
 	return records
+
+
+def _reindex_waitlist_positions(section):
+	entries = EnrollmentWaitlist.objects.filter(
+		section=section,
+		status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+	).order_by('position', 'created_at', 'id')
+
+	for index, entry in enumerate(entries, start=1):
+		if entry.position != index:
+			entry.position = index
+			entry.save(update_fields=['position', 'updated_at'])
+
+
+def _waitlist_entry_to_payload(entry):
+	return {
+		'id': entry.id,
+		'section_id': entry.section_id,
+		'position': entry.position,
+		'status': entry.status,
+		'created_at': entry.created_at,
+	}
+
+
+def _promote_next_waitlisted_student(section):
+	with transaction.atomic():
+		candidate = (
+			EnrollmentWaitlist.objects.select_related('student__user')
+			.select_for_update()
+			.filter(section=section, status=EnrollmentWaitlist.WaitlistStatus.ACTIVE)
+			.order_by('position', 'created_at', 'id')
+			.first()
+		)
+		if candidate is None:
+			return None
+
+		enrollment = CourseEnrollment.objects.filter(
+			student=candidate.student,
+			section=section,
+			academic_term=section.academic_term,
+		).first()
+
+		if enrollment is None:
+			enrollment = CourseEnrollment.objects.create(
+				student=candidate.student,
+				section=section,
+				academic_term=section.academic_term,
+				status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+			)
+		elif enrollment.status == CourseEnrollment.EnrollmentStatus.DROPPED:
+			enrollment.status = CourseEnrollment.EnrollmentStatus.ACTIVE
+			enrollment.dropped_at = None
+			enrollment.save(update_fields=['status', 'dropped_at', 'updated_at'])
+		else:
+			candidate.status = EnrollmentWaitlist.WaitlistStatus.CANCELLED
+			candidate.save(update_fields=['status', 'updated_at'])
+			_reindex_waitlist_positions(section)
+			return _promote_next_waitlisted_student(section)
+
+		candidate.status = EnrollmentWaitlist.WaitlistStatus.ENROLLED
+		candidate.save(update_fields=['status', 'updated_at'])
+		_reindex_waitlist_positions(section)
+
+		Notification.objects.create(
+			recipient=candidate.student.user,
+			title='Enrollment available',
+			body=f'You have been enrolled in section {section.id} from the waitlist.',
+			notification_type='waitlist_promotion',
+			payload={'section_id': section.id, 'enrollment_id': enrollment.id},
+		)
+
+		return {
+			'waitlist_entry_id': candidate.id,
+			'enrollment_id': enrollment.id,
+			'student_id': candidate.student_id,
+		}
 
 
 class StudentProfileView(APIView):
@@ -223,17 +300,78 @@ class StudentEnrollmentView(APIView):
 			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
 		).count()
 		if section.capacity and active_count >= section.capacity:
+			existing_waitlist = EnrollmentWaitlist.objects.filter(student=student, section=section).first()
+			if existing_waitlist and existing_waitlist.status == EnrollmentWaitlist.WaitlistStatus.ACTIVE:
+				return Response(
+					{
+						'status': 'success',
+						'message': 'Already on waitlist for this section',
+						'data': _waitlist_entry_to_payload(existing_waitlist),
+					},
+					status=status.HTTP_200_OK,
+				)
+
+			if existing_waitlist is None:
+				next_position = (
+					EnrollmentWaitlist.objects.filter(
+						section=section,
+						status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+					)
+					.count()
+					+ 1
+				)
+				existing_waitlist = EnrollmentWaitlist.objects.create(
+					student=student,
+					section=section,
+					academic_term=section.academic_term,
+					position=next_position,
+					status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+				)
+			else:
+				existing_waitlist.academic_term = section.academic_term
+				existing_waitlist.position = (
+					EnrollmentWaitlist.objects.filter(
+						section=section,
+						status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+					)
+					.exclude(id=existing_waitlist.id)
+					.count()
+					+ 1
+				)
+				existing_waitlist.status = EnrollmentWaitlist.WaitlistStatus.ACTIVE
+				existing_waitlist.save(update_fields=['academic_term', 'position', 'status', 'updated_at'])
+
+			_reindex_waitlist_positions(section)
+			existing_waitlist.refresh_from_db(fields=['position'])
+
 			return Response(
-				{'status': 'error', 'message': 'Section is full'},
-				status=status.HTTP_400_BAD_REQUEST,
+				{
+					'status': 'success',
+					'message': 'Section is full, added to waitlist',
+					'data': _waitlist_entry_to_payload(existing_waitlist),
+				},
+				status=status.HTTP_202_ACCEPTED,
 			)
 
-		enrollment = CourseEnrollment.objects.create(
+		if existing is None:
+			enrollment = CourseEnrollment.objects.create(
+				student=student,
+				section=section,
+				academic_term=section.academic_term,
+				status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+			)
+		else:
+			existing.status = CourseEnrollment.EnrollmentStatus.ACTIVE
+			existing.dropped_at = None
+			existing.save(update_fields=['status', 'dropped_at', 'updated_at'])
+			enrollment = existing
+
+		EnrollmentWaitlist.objects.filter(
 			student=student,
 			section=section,
-			academic_term=section.academic_term,
-			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
-		)
+			status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+		).update(status=EnrollmentWaitlist.WaitlistStatus.ENROLLED)
+		_reindex_waitlist_positions(section)
 
 		return Response(
 			{
@@ -286,7 +424,10 @@ class StudentEnrollmentDeleteView(APIView):
 		enrollment.dropped_at = timezone.now()
 		enrollment.save(update_fields=['status', 'dropped_at', 'updated_at'])
 
-		return Response({'status': 'success', 'message': 'Enrollment dropped successfully'})
+		promoted = _promote_next_waitlisted_student(enrollment.section)
+		data = {'promoted_waitlist': promoted} if promoted else None
+
+		return Response({'status': 'success', 'message': 'Enrollment dropped successfully', 'data': data})
 
 
 class StudentGradeView(APIView):
@@ -548,6 +689,7 @@ class StudentWaitlistDeleteView(APIView):
 
 		entry.status = EnrollmentWaitlist.WaitlistStatus.CANCELLED
 		entry.save(update_fields=['status', 'updated_at'])
+		_reindex_waitlist_positions(entry.section)
 		return Response({'status': 'success', 'message': 'Waitlist entry removed successfully'})
 
 
