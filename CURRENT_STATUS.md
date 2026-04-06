@@ -52,6 +52,9 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: targeted API tests for auth profile update and enrollment write/waitlist promotion flows added and passing (SQLite).
 - Completed: seed fixtures extended for additional faculties/departments/courses and multi-term enrollment scenarios.
 - Completed: webhook delivery execution pipeline implemented with queue + processing management commands (dispatch_webhook_event, process_webhook_deliveries).
+- Completed: automated webhook tests added for queue filtering and success/retry/failure delivery behavior.
+- Completed: enrollment, attendance, and section announcement domain events now enqueue webhook deliveries.
+- Completed: periodic webhook scheduler command implemented (run_webhook_scheduler) with settings-based runtime controls.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -84,6 +87,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Add automated tests for webhook queue/processing behavior (success, retry, and terminal failure states).
-3. Wire domain events to webhook enqueue calls (e.g., enrollment changes, attendance updates, announcements).
-4. Add a periodic scheduler integration to run process_webhook_deliveries in production.
+2. Add admin/API observability endpoints for webhook processing metrics and recent failures.
+3. Add periodic clean-up/archival command for old webhook deliveries.
+4. Add deployment-level process manager config for run_webhook_scheduler (systemd/supervisor/container entrypoint).
