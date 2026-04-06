@@ -61,3 +61,50 @@ class Grade(models.Model):
 
 	def __str__(self):
 		return f'{self.enrollment_id}:{self.letter_grade}'
+
+
+class AttendanceSession(models.Model):
+	section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='attendance_sessions')
+	created_by = models.ForeignKey('enrollment.ProfessorProfile', on_delete=models.CASCADE, related_name='attendance_sessions')
+	session_date = models.DateField()
+	title = models.CharField(max_length=255, null=True, blank=True)
+	notes = models.TextField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(
+				fields=['section', 'session_date', 'title'],
+				name='uniq_attendance_session_section_date_title',
+			)
+		]
+
+	def __str__(self):
+		return f'section:{self.section_id} date:{self.session_date}'
+
+
+class AttendanceRecord(models.Model):
+	class Status(models.TextChoices):
+		PRESENT = 'present', 'Present'
+		ABSENT = 'absent', 'Absent'
+		LATE = 'late', 'Late'
+		EXCUSED = 'excused', 'Excused'
+
+	session = models.ForeignKey(AttendanceSession, on_delete=models.CASCADE, related_name='records')
+	enrollment = models.ForeignKey('enrollment.CourseEnrollment', on_delete=models.CASCADE, related_name='attendance_records')
+	status = models.CharField(max_length=20, choices=Status.choices, default=Status.ABSENT)
+	note = models.CharField(max_length=255, null=True, blank=True)
+	marked_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(
+				fields=['session', 'enrollment'],
+				name='uniq_attendance_record_session_enrollment',
+			)
+		]
+
+	def __str__(self):
+		return f'session:{self.session_id} enrollment:{self.enrollment_id} status:{self.status}'

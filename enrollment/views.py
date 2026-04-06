@@ -1,9 +1,12 @@
 from django.http import HttpResponse
+from django.utils.dateparse import parse_date
+from django.db import transaction
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAnyRole
-from academics.models import AcademicTerm, Grade, Section
+from academics.models import AcademicTerm, AttendanceRecord, AttendanceSession, Grade, Section
 
 from .models import CourseEnrollment
 from .services import (
@@ -67,6 +70,14 @@ def _normalize_schedule_slots(schedule):
 		)
 
 	return slots
+
+
+def _get_professor_section_or_none(profile, section_id):
+	return (
+		Section.objects.select_related('course', 'academic_term')
+		.filter(id=section_id, professor=profile)
+		.first()
+	)
 
 
 class StudentProfileView(APIView):
@@ -422,9 +433,7 @@ class ProfessorSectionStudentsView(APIView):
 			)
 
 		section = (
-			Section.objects.select_related('course', 'academic_term')
-			.filter(id=section_id, professor=profile)
-			.first()
+			_get_professor_section_or_none(profile, section_id)
 		)
 		if section is None:
 			return Response(
@@ -504,3 +513,332 @@ class ProfessorSectionStudentsView(APIView):
 		}
 
 		return Response({'status': 'success', 'data': data})
+
+
+class ProfessorSectionGradesView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		enrollments = (
+			CourseEnrollment.objects.select_related('student__user', 'grade')
+			.filter(section=section)
+			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
+			.order_by('student__student_number')
+		)
+
+		grades = []
+		for enrollment in enrollments:
+			grade = getattr(enrollment, 'grade', None)
+			grades.append(
+				{
+					'enrollment_id': enrollment.id,
+					'enrollment_status': enrollment.status,
+					'student': {
+						'id': enrollment.student.id,
+						'student_number': enrollment.student.student_number,
+						'name': enrollment.student.user.get_full_name() or enrollment.student.user.username,
+						'email': enrollment.student.user.email,
+					},
+					'grade': {
+						'points': getattr(grade, 'points', None),
+						'letter_grade': getattr(grade, 'letter_grade', None),
+						'status': getattr(grade, 'status', None),
+						'updated_at': getattr(grade, 'updated_at', None),
+					},
+				}
+			)
+
+		data = {
+			'section': {
+				'id': section.id,
+				'course': {
+					'id': section.course.id,
+					'code': section.course.code,
+					'name': section.course.name,
+				},
+				'academic_term': {
+					'id': section.academic_term.id,
+					'name': section.academic_term.name,
+				},
+			},
+			'grades': grades,
+		}
+		return Response({'status': 'success', 'data': data})
+
+	def post(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		payload = request.data
+		rows = payload.get('grades') if isinstance(payload, dict) and isinstance(payload.get('grades'), list) else [payload]
+
+		if not rows:
+			return Response({'status': 'error', 'message': 'No grade rows supplied'}, status=status.HTTP_400_BAD_REQUEST)
+
+		enrollment_ids = []
+		for row in rows:
+			if not isinstance(row, dict) or 'enrollment_id' not in row:
+				return Response(
+					{'status': 'error', 'message': 'Each row must include enrollment_id'},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+			try:
+				enrollment_ids.append(int(row['enrollment_id']))
+			except (TypeError, ValueError):
+				return Response(
+					{'status': 'error', 'message': 'enrollment_id must be an integer'},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+		enrollments = {
+			e.id: e
+			for e in CourseEnrollment.objects.select_related('student')
+			.filter(id__in=enrollment_ids, section=section)
+			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
+		}
+
+		missing = [eid for eid in enrollment_ids if eid not in enrollments]
+		if missing:
+			return Response(
+				{'status': 'error', 'message': 'Invalid enrollment ids for this section', 'data': {'missing_ids': missing}},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		valid_statuses = {choice[0] for choice in Grade.Status.choices}
+		for row in rows:
+			points = row.get('points')
+			letter_grade = row.get('letter_grade')
+			grade_status = row.get('status', Grade.Status.COMPLETE)
+			if points is None or letter_grade is None:
+				return Response(
+					{'status': 'error', 'message': 'points and letter_grade are required for each grade row'},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+			if grade_status not in valid_statuses:
+				return Response(
+					{'status': 'error', 'message': f'Invalid grade status: {grade_status}'},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+		updated = []
+		with transaction.atomic():
+			for row in rows:
+				enrollment_id = int(row['enrollment_id'])
+				points = row.get('points')
+				letter_grade = row.get('letter_grade')
+				grade_status = row.get('status', Grade.Status.COMPLETE)
+
+				grade, _created = Grade.objects.update_or_create(
+					enrollment=enrollments[enrollment_id],
+					defaults={
+						'points': points,
+						'letter_grade': letter_grade,
+						'status': grade_status,
+					},
+				)
+				updated.append(
+					{
+						'enrollment_id': enrollment_id,
+						'grade': {
+							'points': grade.points,
+							'letter_grade': grade.letter_grade,
+							'status': grade.status,
+							'updated_at': grade.updated_at,
+						},
+					}
+				)
+
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Grades updated successfully',
+				'data': {
+					'updated_count': len(updated),
+					'grades': updated,
+				},
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class ProfessorSectionAttendanceView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		sessions = (
+			AttendanceSession.objects.filter(section=section)
+			.prefetch_related('records')
+			.order_by('-session_date', '-id')
+		)
+
+		data = []
+		for session in sessions:
+			records = list(session.records.all())
+			totals = {'present': 0, 'absent': 0, 'late': 0, 'excused': 0}
+			for record in records:
+				if record.status in totals:
+					totals[record.status] += 1
+
+			data.append(
+				{
+					'id': session.id,
+					'session_date': session.session_date,
+					'title': session.title,
+					'notes': session.notes,
+					'created_at': session.created_at,
+					'totals': totals,
+					'recorded_count': len(records),
+				}
+			)
+
+		return Response({'status': 'success', 'data': data})
+
+	def post(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		payload = request.data if isinstance(request.data, dict) else {}
+		session_date = parse_date(payload.get('session_date') or '')
+		if session_date is None:
+			return Response(
+				{'status': 'error', 'message': 'session_date is required in YYYY-MM-DD format'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		title = payload.get('title')
+		notes = payload.get('notes')
+		record_rows = payload.get('records') if isinstance(payload.get('records'), list) else []
+
+		valid_statuses = {choice[0] for choice in AttendanceRecord.Status.choices}
+		record_objects = []
+		if record_rows:
+			enrollment_ids = []
+			for row in record_rows:
+				if not isinstance(row, dict) or 'enrollment_id' not in row:
+					return Response(
+						{'status': 'error', 'message': 'Each attendance row must include enrollment_id'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+				try:
+					enrollment_ids.append(int(row['enrollment_id']))
+				except (TypeError, ValueError):
+					return Response(
+						{'status': 'error', 'message': 'enrollment_id must be an integer'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+
+			enrollments = {
+				e.id: e
+				for e in CourseEnrollment.objects.filter(id__in=enrollment_ids, section=section).exclude(
+					status=CourseEnrollment.EnrollmentStatus.DROPPED
+				)
+			}
+
+			missing = [eid for eid in enrollment_ids if eid not in enrollments]
+			if missing:
+				return Response(
+					{'status': 'error', 'message': 'Invalid enrollment ids for this section', 'data': {'missing_ids': missing}},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+			for row in record_rows:
+				enrollment_id = int(row['enrollment_id'])
+				record_status = row.get('status', AttendanceRecord.Status.ABSENT)
+				if record_status not in valid_statuses:
+					return Response(
+						{'status': 'error', 'message': f'Invalid attendance status: {record_status}'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+				record_objects.append(
+					{
+						'enrollment': enrollments[enrollment_id],
+						'status': record_status,
+						'note': row.get('note'),
+					}
+				)
+		else:
+			enrollments = CourseEnrollment.objects.filter(section=section).exclude(
+				status=CourseEnrollment.EnrollmentStatus.DROPPED
+			)
+			record_objects = [
+				{
+					'enrollment': enrollment,
+					'status': AttendanceRecord.Status.ABSENT,
+					'note': None,
+				}
+				for enrollment in enrollments
+			]
+
+		with transaction.atomic():
+			session = AttendanceSession.objects.create(
+				section=section,
+				created_by=profile,
+				session_date=session_date,
+				title=title,
+				notes=notes,
+			)
+			AttendanceRecord.objects.bulk_create(
+				[
+					AttendanceRecord(
+						session=session,
+						enrollment=record['enrollment'],
+						status=record['status'],
+						note=record['note'],
+					)
+					for record in record_objects
+				]
+			)
+
+		created_records = session.records.count()
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Attendance session created successfully',
+				'data': {
+					'id': session.id,
+					'session_date': session.session_date,
+					'title': session.title,
+					'notes': session.notes,
+					'recorded_count': created_records,
+				},
+			},
+			status=status.HTTP_201_CREATED,
+		)
