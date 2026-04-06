@@ -313,3 +313,37 @@ class SectionAnnouncementsParityTests(APITestCase):
 		notification = Notification.objects.filter(recipient=self.student_user, notification_type='section_announcement').first()
 		self.assertIsNotNone(notification)
 		self.assertIn('Lab update', notification.title)
+
+
+class SharedEndpointsParityTests(APITestCase):
+	def setUp(self):
+		self.user = User.objects.create_user(username='shared_user', email='shared_user@example.com', password='Pass1234!@#')
+		role = Role.objects.create(name='Admin Shared', slug='admin', permissions={})
+		UserRole.objects.create(user=self.user, role=role)
+		token = Token.objects.create(user=self.user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+		for idx in range(1, 4):
+			Notification.objects.create(
+				recipient=self.user,
+				title=f'N{idx}',
+				body='Body',
+				notification_type='general',
+			)
+
+	def test_notifications_support_unread_alias_and_meta(self):
+		response = self.client.get(reverse('shared-notifications'), {'unread': '1', 'per_page': 2, 'page': 1})
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertIn('meta', response.data)
+		self.assertEqual(response.data['meta']['current_page'], 1)
+		self.assertEqual(response.data['meta']['per_page'], 2)
+		self.assertEqual(response.data['meta']['total'], 3)
+		self.assertEqual(response.data['meta']['unread_count'], 3)
+		self.assertEqual(len(response.data['data']), 2)
+
+	def test_announcements_include_meta_payload(self):
+		response = self.client.get(reverse('shared-announcements'), {'per_page': 5, 'page': 1})
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertIn('meta', response.data)
+		self.assertEqual(response.data['meta']['current_page'], 1)
+		self.assertEqual(response.data['meta']['per_page'], 5)

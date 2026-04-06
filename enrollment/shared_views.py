@@ -57,7 +57,24 @@ class SharedAnnouncementsView(APIView):
 		if section_id:
 			queryset = queryset.filter(section_id=section_id)
 
-		announcement_ids = list(queryset.values_list('id', flat=True))
+		per_page_param = request.query_params.get('per_page', 20)
+		page_param = request.query_params.get('page', 1)
+		try:
+			per_page = max(1, min(int(per_page_param), 50))
+		except (TypeError, ValueError):
+			per_page = 20
+		try:
+			page = max(1, int(page_param))
+		except (TypeError, ValueError):
+			page = 1
+
+		total = queryset.count()
+		start = (page - 1) * per_page
+		end = start + per_page
+		paged_queryset = queryset[start:end]
+		last_page = max(1, (total + per_page - 1) // per_page)
+
+		announcement_ids = list(paged_queryset.values_list('id', flat=True))
 		read_map = {
 			read.announcement_id: read.read_at
 			for read in AnnouncementRead.objects.filter(user=request.user, announcement_id__in=announcement_ids)
@@ -91,10 +108,21 @@ class SharedAnnouncementsView(APIView):
 					'staff_number': announcement.created_by.staff_number,
 				},
 			}
-			for announcement in queryset
+			for announcement in paged_queryset
 		]
 
-		return Response({'status': 'success', 'data': data})
+		return Response(
+			{
+				'status': 'success',
+				'data': data,
+				'meta': {
+					'current_page': page,
+					'last_page': last_page,
+					'per_page': per_page,
+					'total': total,
+				},
+			}
+		)
 
 
 class SharedAnnouncementReadView(APIView):
@@ -126,9 +154,31 @@ class SharedNotificationsView(APIView):
 
 	def get(self, request):
 		queryset = Notification.objects.filter(recipient=request.user, deleted_at__isnull=True).order_by('-created_at', '-id')
-		unread_only = str(request.query_params.get('unread_only', '')).lower()
-		if unread_only in {'1', 'true', 'yes'}:
+		unread_raw = request.query_params.get('unread', request.query_params.get('unread_only', ''))
+		if str(unread_raw).lower() in {'1', 'true', 'yes'}:
 			queryset = queryset.filter(read_at__isnull=True)
+
+		per_page_param = request.query_params.get('per_page', 20)
+		page_param = request.query_params.get('page', 1)
+		try:
+			per_page = max(1, min(int(per_page_param), 50))
+		except (TypeError, ValueError):
+			per_page = 20
+		try:
+			page = max(1, int(page_param))
+		except (TypeError, ValueError):
+			page = 1
+
+		total = queryset.count()
+		start = (page - 1) * per_page
+		end = start + per_page
+		paged_queryset = queryset[start:end]
+		last_page = max(1, (total + per_page - 1) // per_page)
+		unread_count = Notification.objects.filter(
+			recipient=request.user,
+			deleted_at__isnull=True,
+			read_at__isnull=True,
+		).count()
 
 		data = [
 			{
@@ -140,9 +190,21 @@ class SharedNotificationsView(APIView):
 				'read_at': notification.read_at,
 				'created_at': notification.created_at,
 			}
-			for notification in queryset
+			for notification in paged_queryset
 		]
-		return Response({'status': 'success', 'data': data})
+		return Response(
+			{
+				'status': 'success',
+				'data': data,
+				'meta': {
+					'current_page': page,
+					'last_page': last_page,
+					'per_page': per_page,
+					'total': total,
+					'unread_count': unread_count,
+				},
+			}
+		)
 
 
 class SharedNotificationsReadAllView(APIView):

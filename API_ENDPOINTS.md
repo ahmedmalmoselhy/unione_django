@@ -11,6 +11,9 @@ Base path: /api
 - POST /api/auth/reset-password
 - POST /api/auth/change-password
 - PATCH /api/auth/profile
+- GET /api/auth/tokens
+- DELETE /api/auth/tokens
+- DELETE /api/auth/tokens/{token_id}
 
 ## Student
 
@@ -31,6 +34,7 @@ Base path: /api
 - DELETE /api/student/waitlist/{section_id}
 - GET /api/student/ratings
 - POST /api/student/ratings
+- GET /api/student/sections/{section_id}/announcements
 
 ## Professor
 
