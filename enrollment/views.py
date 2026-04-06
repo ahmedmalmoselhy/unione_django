@@ -1,3 +1,5 @@
+import logging
+
 from django.http import HttpResponse
 from django.db import transaction
 from django.utils import timezone
@@ -18,6 +20,7 @@ from academics.models import (
 	Section,
 	SectionAnnouncement,
 )
+from academics.webhook_delivery import enqueue_webhook_deliveries
 
 from .models import CourseEnrollment
 from .services import (
@@ -28,6 +31,9 @@ from .services import (
 	build_student_transcript_pdf_bytes,
 )
 from .serializers import EnrollmentSerializer, GradeSerializer, StudentProfileSerializer
+
+
+logger = logging.getLogger(__name__)
 
 
 class StudentOnlyPermission(HasAnyRole):
@@ -114,6 +120,13 @@ def _attendance_records_payload(session):
 	return records
 
 
+def _enqueue_webhook_event(event_name, payload):
+	try:
+		enqueue_webhook_deliveries(event_name, payload=payload)
+	except Exception:
+		logger.exception('Failed to enqueue webhook event: %s', event_name)
+
+
 def _reindex_waitlist_positions(section):
 	entries = EnrollmentWaitlist.objects.filter(
 		section=section,
@@ -181,6 +194,16 @@ def _promote_next_waitlisted_student(section):
 			body=f'You have been enrolled in section {section.id} from the waitlist.',
 			notification_type='waitlist_promotion',
 			payload={'section_id': section.id, 'enrollment_id': enrollment.id},
+		)
+		_enqueue_webhook_event(
+			'enrollment.waitlist_promoted',
+			{
+				'section_id': section.id,
+				'academic_term_id': section.academic_term_id,
+				'student_id': candidate.student_id,
+				'enrollment_id': enrollment.id,
+				'waitlist_entry_id': candidate.id,
+			},
 		)
 
 		return {
@@ -343,6 +366,16 @@ class StudentEnrollmentView(APIView):
 
 			_reindex_waitlist_positions(section)
 			existing_waitlist.refresh_from_db(fields=['position'])
+			_enqueue_webhook_event(
+				'enrollment.waitlist_added',
+				{
+					'section_id': section.id,
+					'academic_term_id': section.academic_term_id,
+					'student_id': student.id,
+					'waitlist_entry_id': existing_waitlist.id,
+					'position': existing_waitlist.position,
+				},
+			)
 
 			return Response(
 				{
@@ -372,6 +405,16 @@ class StudentEnrollmentView(APIView):
 			status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
 		).update(status=EnrollmentWaitlist.WaitlistStatus.ENROLLED)
 		_reindex_waitlist_positions(section)
+		_enqueue_webhook_event(
+			'enrollment.created',
+			{
+				'enrollment_id': enrollment.id,
+				'section_id': section.id,
+				'academic_term_id': section.academic_term_id,
+				'student_id': student.id,
+				'status': enrollment.status,
+			},
+		)
 
 		return Response(
 			{
@@ -425,6 +468,16 @@ class StudentEnrollmentDeleteView(APIView):
 		enrollment.save(update_fields=['status', 'dropped_at', 'updated_at'])
 
 		promoted = _promote_next_waitlisted_student(enrollment.section)
+		_enqueue_webhook_event(
+			'enrollment.dropped',
+			{
+				'enrollment_id': enrollment.id,
+				'section_id': enrollment.section_id,
+				'academic_term_id': enrollment.academic_term_id,
+				'student_id': student.id,
+				'promoted_waitlist': promoted,
+			},
+		)
 		data = {'promoted_waitlist': promoted} if promoted else None
 
 		return Response({'status': 'success', 'message': 'Enrollment dropped successfully', 'data': data})
@@ -1332,6 +1385,16 @@ class ProfessorSectionAttendanceView(APIView):
 			)
 
 		created_records = session.records.count()
+		_enqueue_webhook_event(
+			'attendance.session_created',
+			{
+				'session_id': session.id,
+				'section_id': section.id,
+				'academic_term_id': section.academic_term_id,
+				'recorded_count': created_records,
+				'created_by_professor_id': profile.id,
+			},
+		)
 		return Response(
 			{
 				'status': 'success',
@@ -1376,6 +1439,17 @@ class ProfessorSectionAttendanceSessionDetailView(APIView):
 		for record in records:
 			if record['status'] in totals:
 				totals[record['status']] += 1
+
+		_enqueue_webhook_event(
+			'attendance.session_updated',
+			{
+				'session_id': session.id,
+				'section_id': section.id,
+				'academic_term_id': section.academic_term_id,
+				'recorded_count': len(records),
+				'updated_by_professor_id': profile.id,
+			},
+		)
 
 		return Response(
 			{
@@ -1578,6 +1652,16 @@ class ProfessorSectionAnnouncementsView(APIView):
 			body=str(body),
 			is_pinned=bool(payload.get('is_pinned', False)),
 		)
+		_enqueue_webhook_event(
+			'announcement.created',
+			{
+				'announcement_id': announcement.id,
+				'section_id': section.id,
+				'academic_term_id': section.academic_term_id,
+				'created_by_professor_id': profile.id,
+				'is_pinned': announcement.is_pinned,
+			},
+		)
 
 		return Response(
 			{
@@ -1614,5 +1698,13 @@ class ProfessorSectionAnnouncementDeleteView(APIView):
 		if announcement is None:
 			return Response({'status': 'error', 'message': 'Announcement not found'}, status=status.HTTP_404_NOT_FOUND)
 
+		event_payload = {
+			'announcement_id': announcement.id,
+			'section_id': section.id,
+			'academic_term_id': section.academic_term_id,
+			'deleted_by_professor_id': profile.id,
+		}
+
 		announcement.delete()
+		_enqueue_webhook_event('announcement.deleted', event_payload)
 		return Response({'status': 'success', 'message': 'Announcement deleted successfully'}, status=status.HTTP_200_OK)
