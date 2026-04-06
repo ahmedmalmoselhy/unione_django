@@ -1,10 +1,11 @@
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from academics.models import AnnouncementRead, Notification, SectionAnnouncement
+from academics.models import Announcement, GlobalAnnouncementRead, Notification
 from enrollment.models import CourseEnrollment
 
 
@@ -15,36 +16,41 @@ def _user_role_slugs(user):
 
 
 def _announcement_queryset_for_user(user):
-	queryset = SectionAnnouncement.objects.select_related(
-		'section__course',
-		'section__academic_term',
-		'created_by__user',
-	).order_by('-is_pinned', '-published_at', '-id')
+	now = timezone.now()
+	queryset = Announcement.objects.select_related('author').filter(
+		deleted_at__isnull=True,
+		published_at__lte=now,
+	).filter(
+		Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+	)
 
-	if user.is_superuser:
-		return queryset
+	faculty_id = None
+	department_id = None
+	section_ids = []
 
-	roles = _user_role_slugs(user)
-	if roles.intersection({'admin', 'faculty_admin', 'department_admin', 'employee'}):
-		return queryset
-
-	section_ids = set()
-	if 'professor' in roles:
-		section_ids.update(
-			user.professor_profile.sections.values_list('id', flat=True)
-			if hasattr(user, 'professor_profile')
-			else []
-		)
-	if 'student' in roles:
-		section_ids.update(
-			CourseEnrollment.objects.filter(student__user=user)
+	if hasattr(user, 'student_profile'):
+		student_profile = user.student_profile
+		faculty_id = student_profile.faculty_id
+		department_id = student_profile.department_id
+		section_ids = list(
+			CourseEnrollment.objects.filter(student=student_profile)
 			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
 			.values_list('section_id', flat=True)
 		)
+	elif hasattr(user, 'professor_profile'):
+		professor_profile = user.professor_profile
+		department_id = professor_profile.department_id
+		faculty_id = professor_profile.department.faculty_id if professor_profile.department_id else None
 
-	if not section_ids:
-		return queryset.none()
-	return queryset.filter(section_id__in=section_ids)
+	visibility_filter = Q(visibility=Announcement.Visibility.UNIVERSITY)
+	if faculty_id:
+		visibility_filter |= Q(visibility=Announcement.Visibility.FACULTY, target_id=faculty_id)
+	if department_id:
+		visibility_filter |= Q(visibility=Announcement.Visibility.DEPARTMENT, target_id=department_id)
+	if section_ids:
+		visibility_filter |= Q(visibility=Announcement.Visibility.SECTION, target_id__in=section_ids)
+
+	return queryset.filter(visibility_filter).order_by('-published_at', '-id')
 
 
 class SharedAnnouncementsView(APIView):
@@ -55,7 +61,7 @@ class SharedAnnouncementsView(APIView):
 
 		section_id = request.query_params.get('section_id')
 		if section_id:
-			queryset = queryset.filter(section_id=section_id)
+			queryset = queryset.filter(visibility=Announcement.Visibility.SECTION, target_id=section_id)
 
 		per_page_param = request.query_params.get('per_page', 20)
 		page_param = request.query_params.get('page', 1)
@@ -77,7 +83,7 @@ class SharedAnnouncementsView(APIView):
 		announcement_ids = list(paged_queryset.values_list('id', flat=True))
 		read_map = {
 			read.announcement_id: read.read_at
-			for read in AnnouncementRead.objects.filter(user=request.user, announcement_id__in=announcement_ids)
+			for read in GlobalAnnouncementRead.objects.filter(user=request.user, announcement_id__in=announcement_ids)
 		}
 
 		data = [
@@ -85,28 +91,18 @@ class SharedAnnouncementsView(APIView):
 				'id': announcement.id,
 				'title': announcement.title,
 				'body': announcement.body,
-				'is_pinned': announcement.is_pinned,
+				'type': announcement.type,
+				'visibility': announcement.visibility,
 				'published_at': announcement.published_at,
-				'updated_at': announcement.updated_at,
+				'expires_at': announcement.expires_at,
 				'is_read': announcement.id in read_map,
 				'read_at': read_map.get(announcement.id),
-				'section': {
-					'id': announcement.section.id,
-					'course': {
-						'id': announcement.section.course.id,
-						'code': announcement.section.course.code,
-						'name': announcement.section.course.name,
-					},
-					'academic_term': {
-						'id': announcement.section.academic_term.id,
-						'name': announcement.section.academic_term.name,
-					},
-				},
-				'created_by': {
-					'id': announcement.created_by.id,
-					'name': announcement.created_by.user.get_full_name() or announcement.created_by.user.username,
-					'staff_number': announcement.created_by.staff_number,
-				},
+				'author': {
+					'first_name': announcement.author.first_name,
+					'last_name': announcement.author.last_name,
+				}
+				if announcement.author
+				else None,
 			}
 			for announcement in paged_queryset
 		]
@@ -129,14 +125,18 @@ class SharedAnnouncementReadView(APIView):
 	permission_classes = [IsAuthenticated]
 
 	def post(self, request, announcement_id):
-		announcement = _announcement_queryset_for_user(request.user).filter(id=announcement_id).first()
+		announcement = Announcement.objects.filter(
+			id=announcement_id,
+			deleted_at__isnull=True,
+			published_at__lte=timezone.now(),
+		).first()
 		if announcement is None:
 			return Response(
 				{'status': 'error', 'message': 'Announcement not found'},
 				status=status.HTTP_404_NOT_FOUND,
 			)
 
-		read, _created = AnnouncementRead.objects.get_or_create(
+		read, _created = GlobalAnnouncementRead.objects.get_or_create(
 			announcement=announcement,
 			user=request.user,
 		)

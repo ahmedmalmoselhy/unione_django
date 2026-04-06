@@ -4,7 +4,11 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from academics.models import AcademicTerm, Course, EnrollmentWaitlist, Grade, Notification, Section, SectionAnnouncement
+from datetime import timedelta
+
+from django.utils import timezone
+
+from academics.models import Announcement, AcademicTerm, Course, EnrollmentWaitlist, GlobalAnnouncementRead, Grade, Notification, Section, SectionAnnouncement
 from accounts.models import Role, UserRole
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
@@ -331,6 +335,40 @@ class SharedEndpointsParityTests(APITestCase):
 				notification_type='general',
 			)
 
+	def _build_student_context(self):
+		university = University.objects.create(name='Uni Shared', code='US', country='EG', city='Cairo', established_year=1990)
+		faculty = Faculty.objects.create(university=university, name='Engineering', code='ENGS')
+		department = Department.objects.create(faculty=faculty, name='Computer Science', code='CSS')
+		prof_user = User.objects.create_user(username='prof_shared', email='prof_shared@example.com', password='Pass1234!@#')
+		prof_role = Role.objects.create(name='Professor Shared', slug='professor', permissions={})
+		UserRole.objects.create(user=prof_user, role=prof_role)
+		prof_profile = ProfessorProfile.objects.create(user=prof_user, staff_number='PSH-01', department=department, hired_at='2020-01-01')
+		term = AcademicTerm.objects.create(
+			name='Spring Shared',
+			start_date='2026-02-01',
+			end_date='2026-06-30',
+			registration_start='2026-01-01',
+			registration_end='2026-01-20',
+			is_active=True,
+		)
+		course = Course.objects.create(code='SHR101', name='Shared Course', credit_hours=3, lecture_hours=3, lab_hours=0, level=100)
+		section = Section.objects.create(course=course, professor=prof_profile, academic_term=term, semester=1, capacity=20, schedule={})
+
+		student_role = Role.objects.get(slug='admin')
+		student_profile = StudentProfile.objects.create(
+			user=self.user,
+			student_number='SH1001',
+			faculty=faculty,
+			department=department,
+			academic_year=1,
+			semester=1,
+			enrolled_at='2025-09-01',
+		)
+		self.assertIsNotNone(student_role)
+		CourseEnrollment.objects.create(student=student_profile, section=section, academic_term=term, status=CourseEnrollment.EnrollmentStatus.ACTIVE)
+
+		return faculty, department, section
+
 	def test_notifications_support_unread_alias_and_meta(self):
 		response = self.client.get(reverse('shared-notifications'), {'unread': '1', 'per_page': 2, 'page': 1})
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -347,3 +385,59 @@ class SharedEndpointsParityTests(APITestCase):
 		self.assertIn('meta', response.data)
 		self.assertEqual(response.data['meta']['current_page'], 1)
 		self.assertEqual(response.data['meta']['per_page'], 5)
+
+	def test_announcements_visibility_rules_and_read_tracking(self):
+		faculty, department, section = self._build_student_context()
+		now = timezone.now()
+
+		univ_announcement = Announcement.objects.create(
+			title='Uni Notice',
+			body='For everyone',
+			type='general',
+			visibility=Announcement.Visibility.UNIVERSITY,
+			published_at=now,
+		)
+		Announcement.objects.create(
+			title='Faculty Notice',
+			body='For faculty',
+			type='general',
+			visibility=Announcement.Visibility.FACULTY,
+			target_id=faculty.id,
+			published_at=now,
+		)
+		Announcement.objects.create(
+			title='Department Notice',
+			body='For department',
+			type='general',
+			visibility=Announcement.Visibility.DEPARTMENT,
+			target_id=department.id,
+			published_at=now,
+		)
+		Announcement.objects.create(
+			title='Section Notice',
+			body='For section',
+			type='general',
+			visibility=Announcement.Visibility.SECTION,
+			target_id=section.id,
+			published_at=now,
+		)
+		Announcement.objects.create(
+			title='Expired Notice',
+			body='Expired',
+			visibility=Announcement.Visibility.UNIVERSITY,
+			published_at=now,
+			expires_at=now - timedelta(minutes=1),
+		)
+
+		list_response = self.client.get(reverse('shared-announcements'))
+		self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+		titles = [item['title'] for item in list_response.data['data']]
+		self.assertIn('Uni Notice', titles)
+		self.assertIn('Faculty Notice', titles)
+		self.assertIn('Department Notice', titles)
+		self.assertIn('Section Notice', titles)
+		self.assertNotIn('Expired Notice', titles)
+
+		read_response = self.client.post(reverse('shared-announcement-read', kwargs={'announcement_id': univ_announcement.id}))
+		self.assertEqual(read_response.status_code, status.HTTP_200_OK)
+		self.assertTrue(GlobalAnnouncementRead.objects.filter(user=self.user, announcement=univ_announcement).exists())

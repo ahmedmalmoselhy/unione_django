@@ -25,13 +25,14 @@ class AccessTokenAuthentication(authentication.BaseAuthentication):
         except UnicodeError as exc:
             raise exceptions.AuthenticationFailed('Invalid token header. Token string should be UTF-8.') from exc
 
-        token = (
-            AccessToken.objects.select_related('user')
-            .filter(token_key=token_key, revoked_at__isnull=True)
-            .first()
-        )
+        token = AccessToken.objects.select_related('user').filter(token_key=token_key).first()
         if token is None:
-            raise exceptions.AuthenticationFailed('Invalid token.')
+            # Allow subsequent authentication classes (e.g. DRF TokenAuthentication)
+            # to attempt authenticating this token.
+            return None
+
+        if token.revoked_at is not None:
+            raise exceptions.AuthenticationFailed('Token revoked.')
 
         if not token.user.is_active:
             raise exceptions.AuthenticationFailed('User inactive or deleted.')

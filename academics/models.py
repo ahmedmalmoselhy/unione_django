@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 
 class AcademicTerm(models.Model):
@@ -123,6 +124,43 @@ class SectionAnnouncement(models.Model):
 
 	def __str__(self):
 		return f'section:{self.section_id} title:{self.title}'
+
+
+class Announcement(models.Model):
+	class Visibility(models.TextChoices):
+		UNIVERSITY = 'university', 'University'
+		FACULTY = 'faculty', 'Faculty'
+		DEPARTMENT = 'department', 'Department'
+		SECTION = 'section', 'Section'
+
+	author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name='announcements', null=True, blank=True)
+	title = models.CharField(max_length=255)
+	body = models.TextField()
+	type = models.CharField(max_length=100, default='general')
+	visibility = models.CharField(max_length=20, choices=Visibility.choices, default=Visibility.UNIVERSITY)
+	target_id = models.PositiveIntegerField(null=True, blank=True)
+	published_at = models.DateTimeField(default=timezone.now)
+	expires_at = models.DateTimeField(null=True, blank=True)
+	deleted_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'announcement:{self.id} visibility:{self.visibility}'
+
+
+class GlobalAnnouncementRead(models.Model):
+	announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name='reads')
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='global_announcement_reads')
+	read_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['announcement', 'user'], name='uniq_global_announcement_read_user')
+		]
+
+	def __str__(self):
+		return f'announcement:{self.announcement_id} user:{self.user_id}'
 
 
 class AnnouncementRead(models.Model):
