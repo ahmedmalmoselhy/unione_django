@@ -1,6 +1,6 @@
 # UniOne Django - Current Status
 
-Last Updated: April 2, 2026
+Last Updated: April 6, 2026
 Project Phase: Phase 2 Student Core
 Overall Status: ACTIVE DEVELOPMENT
 
@@ -35,6 +35,8 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: Phase 2 section and term read endpoints implemented (/api/student/sections, /api/student/academic-terms).
 - Completed: Grade model added for academic results storage.
 - Completed: Phase 2 student API tests added and passing.
+- Completed: student transcript and academic history endpoints implemented (/api/student/transcript, /api/student/academic-history).
+- Completed: student schedule endpoints implemented (/api/student/schedule, /api/student/schedule/ics).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -68,5 +70,5 @@ Overall Status: ACTIVE DEVELOPMENT
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
 2. Add seed fixtures for baseline university/faculty/department/course/term data.
-3. Introduce service layer for enrollment read/query logic.
-4. Expand Phase 2 into transcript and schedule export endpoints.
+3. Start Phase 3 professor core read/write endpoints (sections, students, grades, attendance).
+4. Add transcript PDF export endpoint (/api/student/transcript/pdf).

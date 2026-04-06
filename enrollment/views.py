@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -5,6 +6,12 @@ from accounts.permissions import HasAnyRole
 from academics.models import AcademicTerm, Grade, Section
 
 from .models import CourseEnrollment
+from .services import (
+	build_student_academic_history,
+	build_student_schedule,
+	build_student_schedule_ics,
+	build_student_transcript,
+)
 from .serializers import EnrollmentSerializer, GradeSerializer, StudentProfileSerializer
 
 
@@ -176,3 +183,40 @@ class StudentSectionsView(APIView):
 			)
 
 		return Response({'status': 'success', 'data': data})
+
+
+class StudentTranscriptView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		academic_term_id = request.query_params.get('academic_term_id')
+		data = build_student_transcript(request.user.student_profile, academic_term_id=academic_term_id)
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentAcademicHistoryView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		data = build_student_academic_history(request.user.student_profile)
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentScheduleView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		academic_term_id = request.query_params.get('academic_term_id')
+		data = build_student_schedule(request.user.student_profile, academic_term_id=academic_term_id)
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentScheduleICSView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		academic_term_id = request.query_params.get('academic_term_id')
+		ics_content = build_student_schedule_ics(request.user.student_profile, academic_term_id=academic_term_id)
+		response = HttpResponse(ics_content, content_type='text/calendar; charset=utf-8')
+		response['Content-Disposition'] = f'attachment; filename="student-{request.user.student_profile.student_number}-schedule.ics"'
+		return response
