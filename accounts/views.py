@@ -12,6 +12,7 @@ from .serializers import (
 	ForgotPasswordSerializer,
 	LoginSerializer,
 	ResetPasswordSerializer,
+	UpdateProfileSerializer,
 	UserSummarySerializer,
 )
 
@@ -150,3 +151,23 @@ class ChangePasswordView(APIView):
 		Token.objects.filter(user=request.user).delete()
 
 		return Response({'status': 'success', 'message': 'Password changed successfully'}, status=status.HTTP_200_OK)
+
+
+class ProfileUpdateView(APIView):
+	def patch(self, request):
+		serializer = UpdateProfileSerializer(instance=request.user, data=request.data, partial=True)
+		serializer.is_valid(raise_exception=True)
+		serializer.save()
+
+		user_data = UserSummarySerializer(request.user).data
+		user_data['roles'] = _user_role_slugs(request.user)
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Profile updated successfully',
+				'data': {
+					'user': user_data,
+				},
+			},
+			status=status.HTTP_200_OK,
+		)

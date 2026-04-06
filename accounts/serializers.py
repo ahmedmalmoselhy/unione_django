@@ -39,3 +39,15 @@ class ResetPasswordSerializer(serializers.Serializer):
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True, min_length=8)
+
+
+class UpdateProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email']
+
+    def validate_email(self, value):
+        user = self.instance
+        if value and User.objects.exclude(pk=user.pk).filter(email=value).exists():
+            raise serializers.ValidationError('A user with this email already exists.')
+        return value
