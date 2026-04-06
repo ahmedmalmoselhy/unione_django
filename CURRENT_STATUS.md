@@ -49,6 +49,9 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: student enrollment write endpoints implemented (/api/student/enrollments POST, /api/student/enrollments/{id} DELETE).
 - Completed: waitlist-aware enrollment flow implemented (auto-waitlist on full sections + promotion on drop).
 - Completed: phase 2 baseline fixtures seed command implemented (seed_phase2_baseline).
+- Completed: targeted API tests for auth profile update and enrollment write/waitlist promotion flows added and passing (SQLite).
+- Completed: seed fixtures extended for additional faculties/departments/courses and multi-term enrollment scenarios.
+- Completed: webhook delivery execution pipeline implemented with queue + processing management commands (dispatch_webhook_event, process_webhook_deliveries).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -81,6 +84,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Add targeted API tests for auth profile update and enrollment write/waitlist promotion flows.
-3. Add seed extensions for additional departments/courses and multi-term enrollment scenarios.
-4. Implement webhook delivery execution worker/retry pipeline to move deliveries beyond persisted records.
+2. Add automated tests for webhook queue/processing behavior (success, retry, and terminal failure states).
+3. Wire domain events to webhook enqueue calls (e.g., enrollment changes, attendance updates, announcements).
+4. Add a periodic scheduler integration to run process_webhook_deliveries in production.
