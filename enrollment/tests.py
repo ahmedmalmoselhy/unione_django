@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from academics.models import AcademicTerm, Course, EnrollmentWaitlist, Grade, Section
+from academics.models import AcademicTerm, Course, EnrollmentWaitlist, Grade, Notification, Section, SectionAnnouncement
 from accounts.models import Role, UserRole
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
@@ -200,3 +200,116 @@ class StudentReadAPITests(APITestCase):
 
 		waitlist_entry = EnrollmentWaitlist.objects.get(student=waitlisted_profile, section=section)
 		self.assertEqual(waitlist_entry.status, EnrollmentWaitlist.WaitlistStatus.ENROLLED)
+
+
+class SectionAnnouncementsParityTests(APITestCase):
+	def setUp(self):
+		self.university = University.objects.create(
+			name='Uni One',
+			code='U1P',
+			country='EG',
+			city='Cairo',
+			established_year=1990,
+		)
+		self.faculty = Faculty.objects.create(university=self.university, name='Engineering', code='ENGP')
+		self.department = Department.objects.create(faculty=self.faculty, name='Computer Science', code='CSP')
+
+		self.student_user = User.objects.create_user(username='student_parity', email='student_parity@example.com', password='Pass1234!@#')
+		self.prof_user = User.objects.create_user(username='prof_parity', email='prof_parity@example.com', password='Pass1234!@#')
+
+		student_role = Role.objects.create(name='Student', slug='student', permissions={})
+		prof_role = Role.objects.create(name='Professor', slug='professor', permissions={})
+		UserRole.objects.create(user=self.student_user, role=student_role)
+		UserRole.objects.create(user=self.prof_user, role=prof_role)
+
+		self.student_profile = StudentProfile.objects.create(
+			user=self.student_user,
+			student_number='SP1001',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+		self.professor_profile = ProfessorProfile.objects.create(
+			user=self.prof_user,
+			staff_number='PP1001',
+			department=self.department,
+			hired_at='2020-01-01',
+		)
+
+		self.term = AcademicTerm.objects.create(
+			name='Fall 2025',
+			start_date='2025-09-01',
+			end_date='2026-01-15',
+			registration_start='2025-08-01',
+			registration_end='2025-08-25',
+			is_active=True,
+		)
+		self.course = Course.objects.create(code='CS301P', name='Software Engineering', credit_hours=3, lecture_hours=3, lab_hours=0, level=300)
+		self.section = Section.objects.create(
+			course=self.course,
+			professor=self.professor_profile,
+			academic_term=self.term,
+			semester=1,
+			capacity=30,
+			schedule={'days': [1, 3], 'start_time': '09:00', 'end_time': '10:30'},
+		)
+		self.enrollment = CourseEnrollment.objects.create(
+			student=self.student_profile,
+			section=self.section,
+			academic_term=self.term,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+
+	def test_student_section_announcements_requires_enrollment(self):
+		non_student_user = User.objects.create_user(username='outsider', email='outsider@example.com', password='Pass1234!@#')
+		student_role = Role.objects.get(slug='student')
+		UserRole.objects.create(user=non_student_user, role=student_role)
+		non_student_profile = StudentProfile.objects.create(
+			user=non_student_user,
+			student_number='SP2001',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+		self.assertIsNotNone(non_student_profile)
+
+		token = Token.objects.create(user=non_student_user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+		response = self.client.get(reverse('student-section-announcements', kwargs={'section_id': self.section.id}))
+		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_student_section_announcements_returns_section_data(self):
+		SectionAnnouncement.objects.create(
+			section=self.section,
+			created_by=self.professor_profile,
+			title='Midterm date',
+			body='Midterm is next week',
+		)
+
+		token = Token.objects.create(user=self.student_user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+		response = self.client.get(reverse('student-section-announcements', kwargs={'section_id': self.section.id}))
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(len(response.data['data']), 1)
+		self.assertEqual(response.data['data'][0]['title'], 'Midterm date')
+
+	def test_professor_announcement_creates_student_notifications(self):
+		prof_token = Token.objects.create(user=self.prof_user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {prof_token.key}')
+
+		response = self.client.post(
+			reverse('professor-section-announcements', kwargs={'section_id': self.section.id}),
+			{'title': 'Lab update', 'body': 'Lab moved to Thursday'},
+			format='json',
+		)
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+		notification = Notification.objects.filter(recipient=self.student_user, notification_type='section_announcement').first()
+		self.assertIsNotNone(notification)
+		self.assertIn('Lab update', notification.title)

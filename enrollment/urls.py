@@ -11,6 +11,7 @@ from .views import (
 	StudentRatingsView,
 	StudentScheduleICSView,
 	StudentScheduleView,
+	StudentSectionAnnouncementsView,
 	StudentSectionsView,
 	StudentTranscriptPDFView,
 	StudentTranscriptView,
@@ -34,4 +35,5 @@ urlpatterns = [
 	path('waitlist', StudentWaitlistView.as_view(), name='student-waitlist'),
 	path('waitlist/<int:section_id>', StudentWaitlistDeleteView.as_view(), name='student-waitlist-delete'),
 	path('ratings', StudentRatingsView.as_view(), name='student-ratings'),
+	path('sections/<int:section_id>/announcements', StudentSectionAnnouncementsView.as_view(), name='student-section-announcements'),
 ]

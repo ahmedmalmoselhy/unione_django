@@ -746,6 +746,46 @@ class StudentWaitlistDeleteView(APIView):
 		return Response({'status': 'success', 'message': 'Waitlist entry removed successfully'})
 
 
+class StudentSectionAnnouncementsView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request, section_id):
+		student = request.user.student_profile
+		enrolled = CourseEnrollment.objects.filter(
+			student=student,
+			section_id=section_id,
+		).exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED).exists()
+		if not enrolled:
+			return Response(
+				{'status': 'error', 'message': 'You are not enrolled in this section.'},
+				status=status.HTTP_403_FORBIDDEN,
+			)
+
+		announcements = (
+			SectionAnnouncement.objects.select_related('created_by__user')
+			.filter(section_id=section_id)
+			.order_by('-published_at', '-id')
+		)
+
+		data = [
+			{
+				'id': announcement.id,
+				'title': announcement.title,
+				'body': announcement.body,
+				'is_pinned': announcement.is_pinned,
+				'published_at': announcement.published_at,
+				'updated_at': announcement.updated_at,
+				'created_by': {
+					'id': announcement.created_by.id,
+					'name': announcement.created_by.user.get_full_name() or announcement.created_by.user.username,
+					'staff_number': announcement.created_by.staff_number,
+				},
+			}
+			for announcement in announcements
+		]
+		return Response({'status': 'success', 'data': data}, status=status.HTTP_200_OK)
+
+
 class StudentRatingsView(APIView):
 	permission_classes = [StudentOnlyPermission]
 
@@ -1651,6 +1691,28 @@ class ProfessorSectionAnnouncementsView(APIView):
 			title=str(title).strip(),
 			body=str(body),
 			is_pinned=bool(payload.get('is_pinned', False)),
+		)
+
+		enrolled_student_user_ids = list(
+			CourseEnrollment.objects.filter(section=section)
+			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
+			.values_list('student__user_id', flat=True)
+		)
+		Notification.objects.bulk_create(
+			[
+				Notification(
+					recipient_id=user_id,
+					title=f'New announcement: {announcement.title}',
+					body=announcement.body,
+					notification_type='section_announcement',
+					payload={
+						'announcement_id': announcement.id,
+						'section_id': section.id,
+						'course_id': section.course_id,
+					},
+				)
+				for user_id in enrolled_student_user_ids
+			],
 		)
 		_enqueue_webhook_event(
 			'announcement.created',
