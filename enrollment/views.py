@@ -1,12 +1,21 @@
 from django.http import HttpResponse
-from django.utils.dateparse import parse_date
 from django.db import transaction
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAnyRole
-from academics.models import AcademicTerm, AttendanceRecord, AttendanceSession, Grade, Section, SectionAnnouncement
+from academics.models import (
+	AcademicTerm,
+	AttendanceRecord,
+	AttendanceSession,
+	CourseRating,
+	EnrollmentWaitlist,
+	Grade,
+	Section,
+	SectionAnnouncement,
+)
 
 from .models import CourseEnrollment
 from .services import (
@@ -317,6 +326,224 @@ class StudentScheduleICSView(APIView):
 		response = HttpResponse(ics_content, content_type='text/calendar; charset=utf-8')
 		response['Content-Disposition'] = f'attachment; filename="student-{request.user.student_profile.student_number}-schedule.ics"'
 		return response
+
+
+class StudentAttendanceView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		student = request.user.student_profile
+		queryset = (
+			AttendanceRecord.objects.select_related(
+				'session',
+				'session__section',
+				'session__section__course',
+				'session__section__academic_term',
+				'enrollment',
+			)
+			.filter(enrollment__student=student)
+			.order_by('-session__session_date', '-session_id')
+		)
+
+		academic_term_id = request.query_params.get('academic_term_id')
+		section_id = request.query_params.get('section_id')
+		if academic_term_id:
+			queryset = queryset.filter(session__section__academic_term_id=academic_term_id)
+		if section_id:
+			queryset = queryset.filter(session__section_id=section_id)
+
+		data = [
+			{
+				'id': record.id,
+				'status': record.status,
+				'note': record.note,
+				'marked_at': record.marked_at,
+				'session': {
+					'id': record.session.id,
+					'session_date': record.session.session_date,
+					'title': record.session.title,
+					'section_id': record.session.section.id,
+				},
+				'course': {
+					'id': record.session.section.course.id,
+					'code': record.session.section.course.code,
+					'name': record.session.section.course.name,
+				},
+				'academic_term': {
+					'id': record.session.section.academic_term.id,
+					'name': record.session.section.academic_term.name,
+				},
+			}
+			for record in queryset
+		]
+
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentWaitlistView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		student = request.user.student_profile
+		queryset = (
+			EnrollmentWaitlist.objects.select_related('section__course', 'academic_term')
+			.filter(student=student, status=EnrollmentWaitlist.WaitlistStatus.ACTIVE)
+			.order_by('position', 'created_at')
+		)
+
+		data = [
+			{
+				'id': entry.id,
+				'position': entry.position,
+				'status': entry.status,
+				'notes': entry.notes,
+				'created_at': entry.created_at,
+				'section': {
+					'id': entry.section.id,
+					'semester': entry.section.semester,
+					'course': {
+						'id': entry.section.course.id,
+						'code': entry.section.course.code,
+						'name': entry.section.course.name,
+					},
+				},
+				'academic_term': {
+					'id': entry.academic_term.id,
+					'name': entry.academic_term.name,
+				},
+			}
+			for entry in queryset
+		]
+
+		return Response({'status': 'success', 'data': data})
+
+
+class StudentWaitlistDeleteView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def delete(self, request, section_id):
+		student = request.user.student_profile
+		entry = EnrollmentWaitlist.objects.filter(
+			student=student,
+			section_id=section_id,
+			status=EnrollmentWaitlist.WaitlistStatus.ACTIVE,
+		).first()
+		if entry is None:
+			return Response(
+				{'status': 'error', 'message': 'Waitlist entry not found'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		entry.status = EnrollmentWaitlist.WaitlistStatus.CANCELLED
+		entry.save(update_fields=['status', 'updated_at'])
+		return Response({'status': 'success', 'message': 'Waitlist entry removed successfully'})
+
+
+class StudentRatingsView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		student = request.user.student_profile
+		queryset = (
+			CourseRating.objects.select_related('course', 'section', 'section__academic_term')
+			.filter(student=student)
+			.order_by('-updated_at', '-id')
+		)
+
+		course_id = request.query_params.get('course_id')
+		if course_id:
+			queryset = queryset.filter(course_id=course_id)
+
+		data = [
+			{
+				'id': rating.id,
+				'rating': rating.rating,
+				'comment': rating.comment,
+				'created_at': rating.created_at,
+				'updated_at': rating.updated_at,
+				'course': {
+					'id': rating.course.id,
+					'code': rating.course.code,
+					'name': rating.course.name,
+				},
+				'section': {
+					'id': rating.section.id,
+					'academic_term': rating.section.academic_term.name,
+				}
+				if rating.section
+				else None,
+			}
+			for rating in queryset
+		]
+
+		return Response({'status': 'success', 'data': data})
+
+	def post(self, request):
+		student = request.user.student_profile
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		course_id = payload.get('course_id')
+		rating_value = payload.get('rating')
+		if course_id is None or rating_value is None:
+			return Response(
+				{'status': 'error', 'message': 'course_id and rating are required'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		try:
+			course_id = int(course_id)
+			rating_value = int(rating_value)
+		except (TypeError, ValueError):
+			return Response(
+				{'status': 'error', 'message': 'course_id and rating must be integers'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		if rating_value < 1 or rating_value > 5:
+			return Response(
+				{'status': 'error', 'message': 'rating must be between 1 and 5'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		section_id = payload.get('section_id')
+		enrollment_qs = CourseEnrollment.objects.filter(student=student, section__course_id=course_id).exclude(
+			status=CourseEnrollment.EnrollmentStatus.DROPPED
+		)
+		if section_id is not None:
+			enrollment_qs = enrollment_qs.filter(section_id=section_id)
+
+		enrollment = enrollment_qs.select_related('section').first()
+		if enrollment is None:
+			return Response(
+				{'status': 'error', 'message': 'You can only rate courses you are enrolled in'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		rating_obj, _created = CourseRating.objects.update_or_create(
+			student=student,
+			course_id=course_id,
+			defaults={
+				'section': enrollment.section,
+				'rating': rating_value,
+				'comment': payload.get('comment'),
+			},
+		)
+
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Course rating saved successfully',
+				'data': {
+					'id': rating_obj.id,
+					'course_id': rating_obj.course_id,
+					'section_id': rating_obj.section_id,
+					'rating': rating_obj.rating,
+					'comment': rating_obj.comment,
+					'updated_at': rating_obj.updated_at,
+				},
+			},
+			status=status.HTTP_200_OK,
+		)
 
 
 class ProfessorProfileView(APIView):

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -199,3 +200,45 @@ class WebhookDelivery(models.Model):
 
 	def __str__(self):
 		return f'delivery:{self.id} webhook:{self.webhook_id} status:{self.status}'
+
+
+class EnrollmentWaitlist(models.Model):
+	class WaitlistStatus(models.TextChoices):
+		ACTIVE = 'active', 'Active'
+		CANCELLED = 'cancelled', 'Cancelled'
+		ENROLLED = 'enrolled', 'Enrolled'
+
+	student = models.ForeignKey('enrollment.StudentProfile', on_delete=models.CASCADE, related_name='waitlist_entries')
+	section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='waitlist_entries')
+	academic_term = models.ForeignKey(AcademicTerm, on_delete=models.CASCADE, related_name='waitlist_entries')
+	position = models.PositiveIntegerField(default=1)
+	status = models.CharField(max_length=20, choices=WaitlistStatus.choices, default=WaitlistStatus.ACTIVE)
+	notes = models.TextField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['student', 'section'], name='uniq_waitlist_student_section')
+		]
+
+	def __str__(self):
+		return f'waitlist:{self.student_id}:{self.section_id}:{self.status}'
+
+
+class CourseRating(models.Model):
+	student = models.ForeignKey('enrollment.StudentProfile', on_delete=models.CASCADE, related_name='course_ratings')
+	course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='ratings')
+	section = models.ForeignKey(Section, on_delete=models.SET_NULL, related_name='ratings', null=True, blank=True)
+	rating = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+	comment = models.TextField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['student', 'course'], name='uniq_course_rating_student_course')
+		]
+
+	def __str__(self):
+		return f'rating:{self.student_id}:{self.course_id}:{self.rating}'

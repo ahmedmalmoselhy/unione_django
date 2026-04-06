@@ -1,16 +1,20 @@
 from django.urls import path
 
 from .views import (
+	StudentAttendanceView,
 	StudentAcademicTermsView,
 	StudentAcademicHistoryView,
 	StudentEnrollmentView,
 	StudentGradeView,
 	StudentProfileView,
+	StudentRatingsView,
 	StudentScheduleICSView,
 	StudentScheduleView,
 	StudentSectionsView,
 	StudentTranscriptPDFView,
 	StudentTranscriptView,
+	StudentWaitlistDeleteView,
+	StudentWaitlistView,
 )
 
 urlpatterns = [
@@ -24,4 +28,8 @@ urlpatterns = [
 	path('academic-history', StudentAcademicHistoryView.as_view(), name='student-academic-history'),
 	path('schedule', StudentScheduleView.as_view(), name='student-schedule'),
 	path('schedule/ics', StudentScheduleICSView.as_view(), name='student-schedule-ics'),
+	path('attendance', StudentAttendanceView.as_view(), name='student-attendance'),
+	path('waitlist', StudentWaitlistView.as_view(), name='student-waitlist'),
+	path('waitlist/<int:section_id>', StudentWaitlistDeleteView.as_view(), name='student-waitlist-delete'),
+	path('ratings', StudentRatingsView.as_view(), name='student-ratings'),
 ]
