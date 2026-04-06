@@ -21,5 +21,5 @@ urlpatterns = [
     path('change-password', ChangePasswordView.as_view(), name='auth-change-password'),
     path('profile', ProfileUpdateView.as_view(), name='auth-profile-update'),
     path('tokens', TokenListDestroyAllView.as_view(), name='auth-tokens'),
-    path('tokens/<str:token_id>', TokenDestroyView.as_view(), name='auth-token-destroy'),
+    path('tokens/<int:token_id>', TokenDestroyView.as_view(), name='auth-token-destroy'),
 ]

@@ -36,3 +36,16 @@ class UserRole(models.Model):
 
 	def __str__(self):
 		return f'{self.user_id}:{self.role.slug}'
+
+
+class AccessToken(models.Model):
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='access_tokens')
+	name = models.CharField(max_length=100, default='auth_token')
+	token_key = models.CharField(max_length=128, unique=True)
+	last_used_at = models.DateTimeField(null=True, blank=True)
+	revoked_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'{self.user_id}:{self.id}'

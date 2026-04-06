@@ -1,13 +1,17 @@
+import secrets
+
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.utils.encoding import force_bytes, force_str
+from django.utils import timezone
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import permissions, status
 from rest_framework.authtoken.models import Token
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from .models import AccessToken
 from .serializers import (
 	ChangePasswordSerializer,
 	ForgotPasswordSerializer,
@@ -25,7 +29,15 @@ def _user_role_slugs(user):
 
 
 def _token_identifier(token):
-	return token.key[-12:]
+	return token.id
+
+
+def _create_access_token(user, name='auth_token'):
+	while True:
+		token_key = secrets.token_hex(32)
+		if not AccessToken.objects.filter(token_key=token_key).exists():
+			break
+	return AccessToken.objects.create(user=user, name=name, token_key=token_key)
 
 
 class LoginView(APIView):
@@ -54,13 +66,13 @@ class LoginView(APIView):
 				status=status.HTTP_401_UNAUTHORIZED,
 			)
 
-		token, _ = Token.objects.get_or_create(user=user)
+		access_token = _create_access_token(user=user)
 		return Response(
 			{
 				'status': 'success',
 				'message': 'Login successful',
 				'data': {
-					'token': token.key,
+					'token': access_token.token_key,
 					'user': UserSummarySerializer(user).data,
 				},
 			},
@@ -71,7 +83,11 @@ class LoginView(APIView):
 class LogoutView(APIView):
 	def post(self, request):
 		if request.auth:
-			request.auth.delete()
+			if hasattr(request.auth, 'token_key'):
+				request.auth.revoked_at = timezone.now()
+				request.auth.save(update_fields=['revoked_at', 'updated_at'])
+			else:
+				request.auth.delete()
 		return Response({'status': 'success', 'message': 'Logged out'}, status=status.HTTP_200_OK)
 
 
@@ -144,6 +160,7 @@ class ResetPasswordView(APIView):
 
 		user.set_password(password)
 		user.save(update_fields=['password'])
+		AccessToken.objects.filter(user=user, revoked_at__isnull=True).update(revoked_at=timezone.now(), updated_at=timezone.now())
 		Token.objects.filter(user=user).delete()
 
 		return Response({'status': 'success', 'message': 'Password reset successful'}, status=status.HTTP_200_OK)
@@ -159,6 +176,7 @@ class ChangePasswordView(APIView):
 
 		request.user.set_password(serializer.validated_data['password'])
 		request.user.save(update_fields=['password'])
+		AccessToken.objects.filter(user=request.user, revoked_at__isnull=True).update(revoked_at=timezone.now(), updated_at=timezone.now())
 		Token.objects.filter(user=request.user).delete()
 
 		return Response({'status': 'success', 'message': 'Password changed successfully'}, status=status.HTTP_200_OK)
@@ -186,22 +204,24 @@ class ProfileUpdateView(APIView):
 
 class TokenListDestroyAllView(APIView):
 	def get(self, request):
-		current_key = getattr(request.auth, 'key', None)
-		tokens = Token.objects.filter(user=request.user).order_by('-created')
+		current_id = request.auth.id if hasattr(request.auth, 'id') else None
+		tokens = AccessToken.objects.filter(user=request.user, revoked_at__isnull=True).order_by('-created_at')
 		data = [
 			{
 				'id': _token_identifier(token),
-				'name': 'auth_token',
-				'last_used_at': None,
-				'created_at': token.created,
-				'is_current': token.key == current_key,
+				'name': token.name,
+				'last_used_at': token.last_used_at,
+				'created_at': token.created_at,
+				'is_current': token.id == current_id,
 			}
 			for token in tokens
 		]
 		return Response({'status': 'success', 'data': {'tokens': data}}, status=status.HTTP_200_OK)
 
 	def delete(self, request):
-		deleted, _ = Token.objects.filter(user=request.user).delete()
+		now = timezone.now()
+		deleted = AccessToken.objects.filter(user=request.user, revoked_at__isnull=True).update(revoked_at=now, updated_at=now)
+		Token.objects.filter(user=request.user).delete()
 		return Response(
 			{'status': 'success', 'message': 'All tokens revoked.', 'data': {'revoked_count': deleted}},
 			status=status.HTTP_200_OK,
@@ -210,14 +230,11 @@ class TokenListDestroyAllView(APIView):
 
 class TokenDestroyView(APIView):
 	def delete(self, request, token_id):
-		queryset = Token.objects.filter(user=request.user)
-		if token_id == 'current' and request.auth is not None:
-			token = request.auth
-		else:
-			token = queryset.filter(key__endswith=token_id).first()
+		token = AccessToken.objects.filter(user=request.user, id=token_id, revoked_at__isnull=True).first()
 
 		if token is None:
 			return Response({'status': 'error', 'message': 'Token not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-		token.delete()
+		token.revoked_at = timezone.now()
+		token.save(update_fields=['revoked_at', 'updated_at'])
 		return Response({'status': 'success', 'message': 'Token revoked.'}, status=status.HTTP_200_OK)

@@ -130,17 +130,36 @@ class AuthEndpointsTests(APITestCase):
 		token = login.data['data']['token']
 		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
 
+		self.client.post(
+			reverse('auth-login'),
+			{'email': 'student1@example.com', 'password': 'Pass1234!@#'},
+			format='json',
+		)
+
 		list_response = self.client.get(reverse('auth-tokens'))
 		self.assertEqual(list_response.status_code, status.HTTP_200_OK)
-		self.assertEqual(len(list_response.data['data']['tokens']), 1)
-		token_id = list_response.data['data']['tokens'][0]['id']
-		self.assertTrue(list_response.data['data']['tokens'][0]['is_current'])
+		self.assertEqual(len(list_response.data['data']['tokens']), 2)
+		tokens = list_response.data['data']['tokens']
+		current_token = next(t for t in tokens if t['is_current'])
+		token_id = current_token['id']
 
 		revoke_response = self.client.delete(reverse('auth-token-destroy', kwargs={'token_id': token_id}))
 		self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
 		me_response = self.client.get(reverse('auth-me'))
 		self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+	def test_tokens_destroy_unknown_token_returns_404(self):
+		login = self.client.post(
+			reverse('auth-login'),
+			{'email': 'student1@example.com', 'password': 'Pass1234!@#'},
+			format='json',
+		)
+		token = login.data['data']['token']
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
+
+		response = self.client.delete(reverse('auth-token-destroy', kwargs={'token_id': 999999}))
+		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 	def test_tokens_destroy_all(self):
 		login = self.client.post(
