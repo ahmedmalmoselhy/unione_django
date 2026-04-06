@@ -78,3 +78,45 @@ class AuthEndpointsTests(APITestCase):
 			format='json',
 		)
 		self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+
+	def test_profile_patch_updates_name_and_email(self):
+		login = self.client.post(
+			reverse('auth-login'),
+			{'email': 'student1@example.com', 'password': 'Pass1234!@#'},
+			format='json',
+		)
+		token = login.data['data']['token']
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
+
+		response = self.client.patch(
+			reverse('auth-profile-update'),
+			{'first_name': 'Ali', 'last_name': 'Hassan', 'email': 'ali.hassan@example.com'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['data']['user']['first_name'], 'Ali')
+		self.assertEqual(response.data['data']['user']['email'], 'ali.hassan@example.com')
+
+		self.user.refresh_from_db()
+		self.assertEqual(self.user.first_name, 'Ali')
+		self.assertEqual(self.user.last_name, 'Hassan')
+		self.assertEqual(self.user.email, 'ali.hassan@example.com')
+
+	def test_profile_patch_rejects_duplicate_email(self):
+		User.objects.create_user(username='another', email='another@example.com', password='Pass1234!@#')
+		login = self.client.post(
+			reverse('auth-login'),
+			{'email': 'student1@example.com', 'password': 'Pass1234!@#'},
+			format='json',
+		)
+		token = login.data['data']['token']
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
+
+		response = self.client.patch(
+			reverse('auth-profile-update'),
+			{'email': 'another@example.com'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

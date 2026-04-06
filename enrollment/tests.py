@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from academics.models import AcademicTerm, Course, Grade, Section
+from academics.models import AcademicTerm, Course, EnrollmentWaitlist, Grade, Section
 from accounts.models import Role, UserRole
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
@@ -105,3 +105,98 @@ class StudentReadAPITests(APITestCase):
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		self.assertEqual(len(response.data['data']), 1)
 		self.assertEqual(response.data['data'][0]['course']['code'], 'CS201')
+
+	def test_student_enrollment_post_creates_enrollment(self):
+		response = self.client.post(
+			reverse('student-enrollments'),
+			{'section_id': self.section_2.id},
+			format='json',
+		)
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		enrollment = CourseEnrollment.objects.filter(student=self.student_profile, section=self.section_2).first()
+		self.assertIsNotNone(enrollment)
+		self.assertEqual(enrollment.status, CourseEnrollment.EnrollmentStatus.ACTIVE)
+
+	def test_student_enrollment_post_full_section_adds_waitlist(self):
+		occupied_user = User.objects.create_user(username='seat_owner', email='seat_owner@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=occupied_user, role=self.student_role)
+		occupied_profile = StudentProfile.objects.create(
+			user=occupied_user,
+			student_number='S1002',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+		full_section = Section.objects.create(
+			course=self.course_2,
+			professor=self.professor_profile,
+			academic_term=self.term_2,
+			semester=2,
+			capacity=1,
+			schedule={'days': [1], 'start_time': '08:00', 'end_time': '09:00'},
+		)
+		CourseEnrollment.objects.create(
+			student=occupied_profile,
+			section=full_section,
+			academic_term=self.term_2,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+
+		response = self.client.post(
+			reverse('student-enrollments'),
+			{'section_id': full_section.id},
+			format='json',
+		)
+		self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+		waitlist = EnrollmentWaitlist.objects.filter(student=self.student_profile, section=full_section).first()
+		self.assertIsNotNone(waitlist)
+		self.assertEqual(waitlist.status, EnrollmentWaitlist.WaitlistStatus.ACTIVE)
+		self.assertEqual(waitlist.position, 1)
+
+	def test_student_enrollment_delete_promotes_waitlisted_student(self):
+		section = Section.objects.create(
+			course=self.course_2,
+			professor=self.professor_profile,
+			academic_term=self.term_2,
+			semester=2,
+			capacity=1,
+			schedule={'days': [2], 'start_time': '13:00', 'end_time': '14:00'},
+		)
+		active_enrollment = CourseEnrollment.objects.create(
+			student=self.student_profile,
+			section=section,
+			academic_term=self.term_2,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+
+		waitlisted_user = User.objects.create_user(username='waitlisted', email='waitlisted@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=waitlisted_user, role=self.student_role)
+		waitlisted_profile = StudentProfile.objects.create(
+			user=waitlisted_user,
+			student_number='S1003',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+		waitlisted_token = Token.objects.create(user=waitlisted_user)
+
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {waitlisted_token.key}')
+		self.client.post(reverse('student-enrollments'), {'section_id': section.id}, format='json')
+
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {Token.objects.get(user=self.student_user).key}')
+		response = self.client.delete(reverse('student-enrollment-delete', kwargs={'enrollment_id': active_enrollment.id}))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		active_enrollment.refresh_from_db()
+		self.assertEqual(active_enrollment.status, CourseEnrollment.EnrollmentStatus.DROPPED)
+
+		promoted = CourseEnrollment.objects.filter(student=waitlisted_profile, section=section).first()
+		self.assertIsNotNone(promoted)
+		self.assertEqual(promoted.status, CourseEnrollment.EnrollmentStatus.ACTIVE)
+
+		waitlist_entry = EnrollmentWaitlist.objects.get(student=waitlisted_profile, section=section)
+		self.assertEqual(waitlist_entry.status, EnrollmentWaitlist.WaitlistStatus.ENROLLED)
