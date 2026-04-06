@@ -108,3 +108,16 @@ class AttendanceRecord(models.Model):
 
 	def __str__(self):
 		return f'session:{self.session_id} enrollment:{self.enrollment_id} status:{self.status}'
+
+
+class SectionAnnouncement(models.Model):
+	section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='announcements')
+	created_by = models.ForeignKey('enrollment.ProfessorProfile', on_delete=models.CASCADE, related_name='section_announcements')
+	title = models.CharField(max_length=255)
+	body = models.TextField()
+	is_pinned = models.BooleanField(default=False)
+	published_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'section:{self.section_id} title:{self.title}'

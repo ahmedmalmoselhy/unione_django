@@ -6,7 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import HasAnyRole
-from academics.models import AcademicTerm, AttendanceRecord, AttendanceSession, Grade, Section
+from academics.models import AcademicTerm, AttendanceRecord, AttendanceSession, Grade, Section, SectionAnnouncement
 
 from .models import CourseEnrollment
 from .services import (
@@ -78,6 +78,29 @@ def _get_professor_section_or_none(profile, section_id):
 		.filter(id=section_id, professor=profile)
 		.first()
 	)
+
+
+def _attendance_records_payload(session):
+	records = []
+	for record in session.records.select_related('enrollment__student__user').order_by('enrollment__student__student_number'):
+		student = record.enrollment.student
+		records.append(
+			{
+				'id': record.id,
+				'enrollment_id': record.enrollment_id,
+				'status': record.status,
+				'note': record.note,
+				'marked_at': record.marked_at,
+				'updated_at': record.updated_at,
+				'student': {
+					'id': student.id,
+					'student_number': student.student_number,
+					'name': student.user.get_full_name() or student.user.username,
+					'email': student.user.email,
+				},
+			}
+		)
+	return records
 
 
 class StudentProfileView(APIView):
@@ -842,3 +865,273 @@ class ProfessorSectionAttendanceView(APIView):
 			},
 			status=status.HTTP_201_CREATED,
 		)
+
+
+class ProfessorSectionAttendanceSessionDetailView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request, section_id, session_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		session = (
+			AttendanceSession.objects.filter(id=session_id, section=section)
+			.prefetch_related('records__enrollment__student__user')
+			.first()
+		)
+		if session is None:
+			return Response({'status': 'error', 'message': 'Attendance session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		records = _attendance_records_payload(session)
+		totals = {'present': 0, 'absent': 0, 'late': 0, 'excused': 0}
+		for record in records:
+			if record['status'] in totals:
+				totals[record['status']] += 1
+
+		return Response(
+			{
+				'status': 'success',
+				'data': {
+					'id': session.id,
+					'section_id': section.id,
+					'session_date': session.session_date,
+					'title': session.title,
+					'notes': session.notes,
+					'created_at': session.created_at,
+					'updated_at': session.updated_at,
+					'totals': totals,
+					'recorded_count': len(records),
+					'records': records,
+				},
+			}
+		)
+
+	def put(self, request, section_id, session_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		session = AttendanceSession.objects.filter(id=session_id, section=section).first()
+		if session is None:
+			return Response({'status': 'error', 'message': 'Attendance session not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		new_date = parse_date(payload.get('session_date')) if payload.get('session_date') is not None else None
+		if payload.get('session_date') is not None and new_date is None:
+			return Response(
+				{'status': 'error', 'message': 'session_date must be YYYY-MM-DD when provided'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		record_rows = payload.get('records') if isinstance(payload.get('records'), list) else None
+		valid_statuses = {choice[0] for choice in AttendanceRecord.Status.choices}
+		record_updates = []
+		if record_rows is not None:
+			enrollment_ids = []
+			for row in record_rows:
+				if not isinstance(row, dict) or 'enrollment_id' not in row:
+					return Response(
+						{'status': 'error', 'message': 'Each attendance row must include enrollment_id'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+				try:
+					enrollment_ids.append(int(row['enrollment_id']))
+				except (TypeError, ValueError):
+					return Response(
+						{'status': 'error', 'message': 'enrollment_id must be an integer'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+
+			enrollments = {
+				e.id: e
+				for e in CourseEnrollment.objects.filter(id__in=enrollment_ids, section=section).exclude(
+					status=CourseEnrollment.EnrollmentStatus.DROPPED
+				)
+			}
+			missing = [eid for eid in enrollment_ids if eid not in enrollments]
+			if missing:
+				return Response(
+					{'status': 'error', 'message': 'Invalid enrollment ids for this section', 'data': {'missing_ids': missing}},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+			for row in record_rows:
+				enrollment_id = int(row['enrollment_id'])
+				record_status = row.get('status', AttendanceRecord.Status.ABSENT)
+				if record_status not in valid_statuses:
+					return Response(
+						{'status': 'error', 'message': f'Invalid attendance status: {record_status}'},
+						status=status.HTTP_400_BAD_REQUEST,
+					)
+				record_updates.append(
+					{
+						'enrollment': enrollments[enrollment_id],
+						'status': record_status,
+						'note': row.get('note'),
+					}
+				)
+
+		with transaction.atomic():
+			if new_date is not None:
+				session.session_date = new_date
+			if 'title' in payload:
+				session.title = payload.get('title')
+			if 'notes' in payload:
+				session.notes = payload.get('notes')
+			session.save()
+
+			if record_updates is not None and len(record_updates) > 0:
+				for row in record_updates:
+					AttendanceRecord.objects.update_or_create(
+						session=session,
+						enrollment=row['enrollment'],
+						defaults={
+							'status': row['status'],
+							'note': row['note'],
+						},
+					)
+
+		session = AttendanceSession.objects.filter(id=session.id).prefetch_related('records__enrollment__student__user').first()
+		records = _attendance_records_payload(session)
+		totals = {'present': 0, 'absent': 0, 'late': 0, 'excused': 0}
+		for record in records:
+			if record['status'] in totals:
+				totals[record['status']] += 1
+
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Attendance session updated successfully',
+				'data': {
+					'id': session.id,
+					'session_date': session.session_date,
+					'title': session.title,
+					'notes': session.notes,
+					'totals': totals,
+					'recorded_count': len(records),
+				},
+			}
+		)
+
+
+class ProfessorSectionAnnouncementsView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		announcements = (
+			SectionAnnouncement.objects.select_related('created_by__user')
+			.filter(section=section)
+			.order_by('-is_pinned', '-published_at', '-id')
+		)
+
+		data = [
+			{
+				'id': ann.id,
+				'title': ann.title,
+				'body': ann.body,
+				'is_pinned': ann.is_pinned,
+				'published_at': ann.published_at,
+				'updated_at': ann.updated_at,
+				'created_by': {
+					'id': ann.created_by.id,
+					'name': ann.created_by.user.get_full_name() or ann.created_by.user.username,
+					'staff_number': ann.created_by.staff_number,
+				},
+			}
+			for ann in announcements
+		]
+		return Response({'status': 'success', 'data': data})
+
+	def post(self, request, section_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		payload = request.data if isinstance(request.data, dict) else {}
+		title = payload.get('title')
+		body = payload.get('body')
+		if not title or not body:
+			return Response(
+				{'status': 'error', 'message': 'title and body are required'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		announcement = SectionAnnouncement.objects.create(
+			section=section,
+			created_by=profile,
+			title=str(title).strip(),
+			body=str(body),
+			is_pinned=bool(payload.get('is_pinned', False)),
+		)
+
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Announcement created successfully',
+				'data': {
+					'id': announcement.id,
+					'title': announcement.title,
+					'body': announcement.body,
+					'is_pinned': announcement.is_pinned,
+					'published_at': announcement.published_at,
+				},
+			},
+			status=status.HTTP_201_CREATED,
+		)
+
+
+class ProfessorSectionAnnouncementDeleteView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def delete(self, request, section_id, announcement_id):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response({'status': 'error', 'message': 'Professor profile not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		section = _get_professor_section_or_none(profile, section_id)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found for this professor'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		announcement = SectionAnnouncement.objects.filter(id=announcement_id, section=section).first()
+		if announcement is None:
+			return Response({'status': 'error', 'message': 'Announcement not found'}, status=status.HTTP_404_NOT_FOUND)
+
+		announcement.delete()
+		return Response({'status': 'success', 'message': 'Announcement deleted successfully'}, status=status.HTTP_200_OK)
