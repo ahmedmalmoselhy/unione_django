@@ -11,6 +11,7 @@ from .services import (
 	build_student_schedule,
 	build_student_schedule_ics,
 	build_student_transcript,
+	build_student_transcript_pdf_bytes,
 )
 from .serializers import EnrollmentSerializer, GradeSerializer, StudentProfileSerializer
 
@@ -192,6 +193,19 @@ class StudentTranscriptView(APIView):
 		academic_term_id = request.query_params.get('academic_term_id')
 		data = build_student_transcript(request.user.student_profile, academic_term_id=academic_term_id)
 		return Response({'status': 'success', 'data': data})
+
+
+class StudentTranscriptPDFView(APIView):
+	permission_classes = [StudentOnlyPermission]
+
+	def get(self, request):
+		academic_term_id = request.query_params.get('academic_term_id')
+		pdf_bytes = build_student_transcript_pdf_bytes(request.user.student_profile, academic_term_id=academic_term_id)
+		response = HttpResponse(pdf_bytes, content_type='application/pdf')
+		response['Content-Disposition'] = (
+			f'attachment; filename="student-{request.user.student_profile.student_number}-transcript.pdf"'
+		)
+		return response
 
 
 class StudentAcademicHistoryView(APIView):

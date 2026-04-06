@@ -9,6 +9,7 @@ from .views import (
 	StudentScheduleICSView,
 	StudentScheduleView,
 	StudentSectionsView,
+	StudentTranscriptPDFView,
 	StudentTranscriptView,
 )
 
@@ -19,6 +20,7 @@ urlpatterns = [
 	path('academic-terms', StudentAcademicTermsView.as_view(), name='student-academic-terms'),
 	path('sections', StudentSectionsView.as_view(), name='student-sections'),
 	path('transcript', StudentTranscriptView.as_view(), name='student-transcript'),
+	path('transcript/pdf', StudentTranscriptPDFView.as_view(), name='student-transcript-pdf'),
 	path('academic-history', StudentAcademicHistoryView.as_view(), name='student-academic-history'),
 	path('schedule', StudentScheduleView.as_view(), name='student-schedule'),
 	path('schedule/ics', StudentScheduleICSView.as_view(), name='student-schedule-ics'),

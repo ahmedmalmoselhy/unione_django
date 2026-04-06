@@ -337,3 +337,122 @@ def build_student_schedule_ics(student_profile, academic_term_id=None):
 
 	lines.append('END:VCALENDAR')
 	return '\r\n'.join(lines) + '\r\n'
+
+
+def _pdf_escape(value):
+	text = str(value).replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+	return text.replace('\n', ' ')
+
+
+def _build_simple_pdf_from_lines(lines):
+	if not lines:
+		lines = ['UniOne Transcript']
+
+	max_lines_per_page = 46
+	chunks = [lines[i : i + max_lines_per_page] for i in range(0, len(lines), max_lines_per_page)]
+	page_count = len(chunks)
+	font_object_id = 3 + (page_count * 2)
+
+	objects = {
+		1: b'<< /Type /Catalog /Pages 2 0 R >>',
+		2: (
+			f"<< /Type /Pages /Kids [{' '.join(f'{3 + (idx * 2)} 0 R' for idx in range(page_count))}] "
+			f"/Count {page_count} >>"
+		).encode('ascii'),
+	}
+
+	for idx, chunk in enumerate(chunks):
+		page_object_id = 3 + (idx * 2)
+		content_object_id = 4 + (idx * 2)
+
+		objects[page_object_id] = (
+			f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] '
+			f'/Resources << /Font << /F1 {font_object_id} 0 R >> >> '
+			f'/Contents {content_object_id} 0 R >>'
+		).encode('ascii')
+
+		stream_commands = ['BT', '/F1 10 Tf', '50 800 Td']
+		for line_number, line in enumerate(chunk):
+			stream_commands.append(f'({_pdf_escape(line)}) Tj')
+			if line_number < len(chunk) - 1:
+				stream_commands.append('0 -14 Td')
+		stream_commands.append('ET')
+
+		stream_bytes = '\n'.join(stream_commands).encode('latin-1', 'replace')
+		objects[content_object_id] = (
+			b'<< /Length '
+			+ str(len(stream_bytes)).encode('ascii')
+			+ b' >>\nstream\n'
+			+ stream_bytes
+			+ b'\nendstream'
+		)
+
+	objects[font_object_id] = b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+
+	max_object_id = max(objects.keys())
+	pdf_bytes = bytearray()
+	pdf_bytes.extend(b'%PDF-1.4\n%\xe2\xe3\xcf\xd3\n')
+
+	offsets = {0: 0}
+	for object_id in range(1, max_object_id + 1):
+		offsets[object_id] = len(pdf_bytes)
+		pdf_bytes.extend(f'{object_id} 0 obj\n'.encode('ascii'))
+		pdf_bytes.extend(objects[object_id])
+		pdf_bytes.extend(b'\nendobj\n')
+
+	xref_offset = len(pdf_bytes)
+	pdf_bytes.extend(f'xref\n0 {max_object_id + 1}\n'.encode('ascii'))
+	pdf_bytes.extend(b'0000000000 65535 f \n')
+	for object_id in range(1, max_object_id + 1):
+		pdf_bytes.extend(f'{offsets[object_id]:010d} 00000 n \n'.encode('ascii'))
+
+	pdf_bytes.extend(
+		f'trailer\n<< /Size {max_object_id + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n'.encode('ascii')
+	)
+	return bytes(pdf_bytes)
+
+
+def build_student_transcript_pdf_bytes(student_profile, academic_term_id=None):
+	transcript = build_student_transcript(student_profile, academic_term_id=academic_term_id)
+
+	lines = [
+		'UniOne - Official Student Transcript',
+		'',
+		f"Student Number: {transcript['student']['student_number']}",
+		f"Faculty: {transcript['student']['faculty']}",
+		f"Department: {transcript['student']['department']}",
+		f"Academic Year: {transcript['student']['academic_year']}",
+		f"Semester: {transcript['student']['semester']}",
+	]
+
+	for term in transcript['terms']:
+		lines.append('')
+		lines.append(f"Term: {term['name']} ({term['start_date']} - {term['end_date']})")
+		for course_item in term['courses']:
+			course = course_item['course']
+			grade = course_item['grade']
+			grade_label = grade['letter_grade'] if grade['letter_grade'] else 'N/A'
+			lines.append(
+				f"- {course['code']} {course['name']} ({course['credit_hours']} CH) | "
+				f"Grade: {grade_label} | Status: {course_item['status']}"
+			)
+
+		stats = term['statistics']
+		term_gpa = stats['term_gpa'] if stats['term_gpa'] is not None else 'N/A'
+		lines.append(
+			f"Term Summary: Attempted CH={stats['attempted_credit_hours']}, "
+			f"Earned CH={stats['earned_credit_hours']}, GPA={term_gpa}"
+		)
+
+	summary = transcript['summary']
+	cumulative_gpa = summary['cumulative_gpa'] if summary['cumulative_gpa'] is not None else 'N/A'
+	lines.extend(
+		[
+			'',
+			f"Cumulative Attempted CH: {summary['attempted_credit_hours']}",
+			f"Cumulative Earned CH: {summary['earned_credit_hours']}",
+			f"Cumulative GPA: {cumulative_gpa}",
+		]
+	)
+
+	return _build_simple_pdf_from_lines(lines)

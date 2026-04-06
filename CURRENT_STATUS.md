@@ -37,6 +37,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: Phase 2 student API tests added and passing.
 - Completed: student transcript and academic history endpoints implemented (/api/student/transcript, /api/student/academic-history).
 - Completed: student schedule endpoints implemented (/api/student/schedule, /api/student/schedule/ics).
+- Completed: student transcript PDF export endpoint implemented (/api/student/transcript/pdf).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -71,4 +72,4 @@ Overall Status: ACTIVE DEVELOPMENT
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
 2. Add seed fixtures for baseline university/faculty/department/course/term data.
 3. Start Phase 3 professor core read/write endpoints (sections, students, grades, attendance).
-4. Add transcript PDF export endpoint (/api/student/transcript/pdf).
+4. Implement professor profile and sections read endpoints (/api/professor/profile, /api/professor/sections).
