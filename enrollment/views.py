@@ -176,6 +176,92 @@ class StudentEnrollmentView(APIView):
 
 		return Response({'status': 'success', 'data': EnrollmentSerializer(data, many=True).data})
 
+	def post(self, request):
+		student = request.user.student_profile
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		section_id = payload.get('section_id')
+		if section_id is None:
+			return Response(
+				{'status': 'error', 'message': 'section_id is required'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		try:
+			section_id = int(section_id)
+		except (TypeError, ValueError):
+			return Response(
+				{'status': 'error', 'message': 'section_id must be an integer'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		section = (
+			Section.objects.select_related('course', 'professor__user', 'academic_term')
+			.filter(id=section_id)
+			.first()
+		)
+		if section is None:
+			return Response(
+				{'status': 'error', 'message': 'Section not found'},
+				status=status.HTTP_404_NOT_FOUND,
+			)
+
+		existing = CourseEnrollment.objects.filter(
+			student=student,
+			section=section,
+			academic_term=section.academic_term,
+		).first()
+		if existing is not None and existing.status != CourseEnrollment.EnrollmentStatus.DROPPED:
+			return Response(
+				{'status': 'error', 'message': 'Already enrolled in this section'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		active_count = CourseEnrollment.objects.filter(
+			section=section,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		).count()
+		if section.capacity and active_count >= section.capacity:
+			return Response(
+				{'status': 'error', 'message': 'Section is full'},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		enrollment = CourseEnrollment.objects.create(
+			student=student,
+			section=section,
+			academic_term=section.academic_term,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+
+		return Response(
+			{
+				'status': 'success',
+				'message': 'Enrolled successfully',
+				'data': {
+					'id': enrollment.id,
+					'status': enrollment.status,
+					'registered_at': enrollment.registered_at,
+					'section': {
+						'id': section.id,
+						'course': {
+							'id': section.course.id,
+							'code': section.course.code,
+							'name': section.course.name,
+						},
+						'professor': {
+							'id': section.professor.id,
+							'name': section.professor.user.get_full_name() or section.professor.user.username,
+							'staff_number': section.professor.staff_number,
+						},
+						'schedule': section.schedule,
+						'academic_term': section.academic_term.name,
+					},
+				},
+			},
+			status=status.HTTP_201_CREATED,
+		)
+
 
 class StudentGradeView(APIView):
 	permission_classes = [StudentOnlyPermission]
