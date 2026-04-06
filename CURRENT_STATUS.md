@@ -1,7 +1,7 @@
 # UniOne Django - Current Status
 
 Last Updated: April 6, 2026
-Project Phase: Phase 2 Student Core
+Project Phase: Phase 3 API Completion
 Overall Status: ACTIVE DEVELOPMENT
 
 ## Status Maintenance Rule
@@ -45,6 +45,10 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: shared announcements and notifications endpoints implemented (/api/announcements, /api/notifications).
 - Completed: admin webhook CRUD and delivery listing endpoints implemented (/api/admin/webhooks, /api/admin/webhooks/{id}/deliveries).
 - Completed: remaining student attendance/waitlist/ratings endpoints implemented (/api/student/attendance, /api/student/waitlist, /api/student/ratings).
+- Completed: auth profile update endpoint implemented (/api/auth/profile PATCH).
+- Completed: student enrollment write endpoints implemented (/api/student/enrollments POST, /api/student/enrollments/{id} DELETE).
+- Completed: waitlist-aware enrollment flow implemented (auto-waitlist on full sections + promotion on drop).
+- Completed: phase 2 baseline fixtures seed command implemented (seed_phase2_baseline).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -77,6 +81,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Add seed fixtures for baseline university/faculty/department/course/term data.
-3. Start Phase 3 professor core read/write endpoints (sections, students, grades, attendance).
-4. Implement remaining planned auth profile and enrollment write endpoints (/api/auth/profile, /api/student/enrollments POST/DELETE).
+2. Add targeted API tests for auth profile update and enrollment write/waitlist promotion flows.
+3. Add seed extensions for additional departments/courses and multi-term enrollment scenarios.
+4. Implement webhook delivery execution worker/retry pipeline to move deliveries beyond persisted records.
