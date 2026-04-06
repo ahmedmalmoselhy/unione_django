@@ -49,3 +49,15 @@ class AccessToken(models.Model):
 
 	def __str__(self):
 		return f'{self.user_id}:{self.id}'
+
+
+class AccountProfile(models.Model):
+	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='account_profile')
+	phone = models.CharField(max_length=20, null=True, blank=True)
+	date_of_birth = models.DateField(null=True, blank=True)
+	avatar_path = models.CharField(max_length=500, null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'profile:{self.user_id}'

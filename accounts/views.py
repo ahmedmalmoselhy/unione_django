@@ -190,6 +190,11 @@ class ProfileUpdateView(APIView):
 
 		user_data = UserSummarySerializer(request.user).data
 		user_data['roles'] = _user_role_slugs(request.user)
+		profile = getattr(request.user, 'account_profile', None)
+		if profile is not None:
+			user_data['phone'] = profile.phone
+			user_data['date_of_birth'] = profile.date_of_birth
+			user_data['avatar_path'] = profile.avatar_path
 		return Response(
 			{
 				'status': 'success',

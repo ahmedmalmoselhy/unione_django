@@ -161,6 +161,28 @@ class AuthEndpointsTests(APITestCase):
 		response = self.client.delete(reverse('auth-token-destroy', kwargs={'token_id': 999999}))
 		self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+	def test_profile_patch_updates_extended_profile_fields(self):
+		login = self.client.post(
+			reverse('auth-login'),
+			{'email': 'student1@example.com', 'password': 'Pass1234!@#'},
+			format='json',
+		)
+		token = login.data['data']['token']
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
+
+		response = self.client.patch(
+			reverse('auth-profile-update'),
+			{
+				'phone': '+201234567890',
+				'date_of_birth': '1998-05-21',
+				'avatar_path': '/avatars/user1.png',
+			},
+			format='json',
+		)
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['data']['user']['phone'], '+201234567890')
+		self.assertEqual(response.data['data']['user']['avatar_path'], '/avatars/user1.png')
+
 	def test_tokens_destroy_all(self):
 		login = self.client.post(
 			reverse('auth-login'),
