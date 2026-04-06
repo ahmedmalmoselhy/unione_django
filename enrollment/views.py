@@ -20,6 +20,17 @@ class StudentOnlyPermission(HasAnyRole):
 	required_roles = ['student']
 
 
+class ProfessorOnlyPermission(HasAnyRole):
+	required_roles = ['professor']
+
+
+def _get_professor_profile_or_none(user):
+	try:
+		return user.professor_profile
+	except Exception:
+		return None
+
+
 class StudentProfileView(APIView):
 	permission_classes = [StudentOnlyPermission]
 
@@ -234,3 +245,83 @@ class StudentScheduleICSView(APIView):
 		response = HttpResponse(ics_content, content_type='text/calendar; charset=utf-8')
 		response['Content-Disposition'] = f'attachment; filename="student-{request.user.student_profile.student_number}-schedule.ics"'
 		return response
+
+
+class ProfessorProfileView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response(
+				{'status': 'error', 'message': 'Professor profile not found'},
+				status=404,
+			)
+
+		data = {
+			'id': profile.id,
+			'staff_number': profile.staff_number,
+			'name': request.user.get_full_name() or request.user.username,
+			'email': request.user.email,
+			'specialization': profile.specialization,
+			'academic_rank': profile.academic_rank,
+			'office_location': profile.office_location,
+			'hired_at': profile.hired_at,
+			'department': {
+				'id': profile.department.id,
+				'name': profile.department.name,
+				'code': profile.department.code,
+				'faculty': {
+					'id': profile.department.faculty.id,
+					'name': profile.department.faculty.name,
+					'code': profile.department.faculty.code,
+				},
+			},
+		}
+		return Response({'status': 'success', 'data': data})
+
+
+class ProfessorSectionsView(APIView):
+	permission_classes = [ProfessorOnlyPermission]
+
+	def get(self, request):
+		profile = _get_professor_profile_or_none(request.user)
+		if profile is None:
+			return Response(
+				{'status': 'error', 'message': 'Professor profile not found'},
+				status=404,
+			)
+
+		queryset = Section.objects.select_related('course', 'academic_term').filter(professor=profile).order_by('id')
+
+		academic_term_id = request.query_params.get('academic_term_id')
+		if academic_term_id:
+			queryset = queryset.filter(academic_term_id=academic_term_id)
+
+		data = []
+		for section in queryset:
+			data.append(
+				{
+					'id': section.id,
+					'semester': section.semester,
+					'capacity': section.capacity,
+					'schedule': section.schedule,
+					'academic_term': {
+						'id': section.academic_term.id,
+						'name': section.academic_term.name,
+						'start_date': section.academic_term.start_date,
+						'end_date': section.academic_term.end_date,
+					},
+					'course': {
+						'id': section.course.id,
+						'code': section.course.code,
+						'name': section.course.name,
+						'credit_hours': section.course.credit_hours,
+						'lecture_hours': section.course.lecture_hours,
+						'lab_hours': section.course.lab_hours,
+						'level': section.course.level,
+					},
+				}
+			)
+
+		return Response({'status': 'success', 'data': data})
