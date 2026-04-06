@@ -151,3 +151,51 @@ class Notification(models.Model):
 
 	def __str__(self):
 		return f'notification:{self.id} recipient:{self.recipient_id}'
+
+
+class Webhook(models.Model):
+	name = models.CharField(max_length=255)
+	target_url = models.URLField(max_length=1000)
+	events = models.JSONField(default=list, blank=True)
+	headers = models.JSONField(default=dict, blank=True)
+	secret = models.CharField(max_length=255, null=True, blank=True)
+	is_active = models.BooleanField(default=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		related_name='created_webhooks',
+		null=True,
+		blank=True,
+	)
+	last_triggered_at = models.DateTimeField(null=True, blank=True)
+	deleted_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'webhook:{self.id} name:{self.name}'
+
+
+class WebhookDelivery(models.Model):
+	class DeliveryStatus(models.TextChoices):
+		PENDING = 'pending', 'Pending'
+		SUCCESS = 'success', 'Success'
+		FAILED = 'failed', 'Failed'
+		RETRY = 'retry', 'Retry'
+
+	webhook = models.ForeignKey(Webhook, on_delete=models.CASCADE, related_name='deliveries')
+	event_name = models.CharField(max_length=100)
+	payload = models.JSONField(default=dict, blank=True)
+	request_headers = models.JSONField(default=dict, blank=True)
+	response_status_code = models.PositiveIntegerField(null=True, blank=True)
+	response_body = models.TextField(null=True, blank=True)
+	status = models.CharField(max_length=20, choices=DeliveryStatus.choices, default=DeliveryStatus.PENDING)
+	attempt_count = models.PositiveIntegerField(default=0)
+	error_message = models.TextField(null=True, blank=True)
+	delivered_at = models.DateTimeField(null=True, blank=True)
+	next_retry_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'delivery:{self.id} webhook:{self.webhook_id} status:{self.status}'

@@ -43,6 +43,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: professor grading and attendance section endpoints implemented (/api/professor/sections/{section_id}/grades, /api/professor/sections/{section_id}/attendance).
 - Completed: attendance session detail/update endpoints and section announcements endpoints implemented (/api/professor/sections/{section_id}/attendance/{session_id}, /api/professor/sections/{section_id}/announcements).
 - Completed: shared announcements and notifications endpoints implemented (/api/announcements, /api/notifications).
+- Completed: admin webhook CRUD and delivery listing endpoints implemented (/api/admin/webhooks, /api/admin/webhooks/{id}/deliveries).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -77,4 +78,4 @@ Overall Status: ACTIVE DEVELOPMENT
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
 2. Add seed fixtures for baseline university/faculty/department/course/term data.
 3. Start Phase 3 professor core read/write endpoints (sections, students, grades, attendance).
-4. Implement admin webhook CRUD and delivery listing endpoints (/api/admin/webhooks, /api/admin/webhooks/{id}/deliveries).
+4. Implement remaining planned student endpoints (attendance, waitlist, ratings).
