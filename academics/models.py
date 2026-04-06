@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -121,3 +122,32 @@ class SectionAnnouncement(models.Model):
 
 	def __str__(self):
 		return f'section:{self.section_id} title:{self.title}'
+
+
+class AnnouncementRead(models.Model):
+	announcement = models.ForeignKey(SectionAnnouncement, on_delete=models.CASCADE, related_name='reads')
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='announcement_reads')
+	read_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['announcement', 'user'], name='uniq_announcement_read_user')
+		]
+
+	def __str__(self):
+		return f'announcement:{self.announcement_id} user:{self.user_id}'
+
+
+class Notification(models.Model):
+	recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notifications')
+	title = models.CharField(max_length=255)
+	body = models.TextField()
+	notification_type = models.CharField(max_length=100, default='general')
+	payload = models.JSONField(default=dict, blank=True)
+	read_at = models.DateTimeField(null=True, blank=True)
+	deleted_at = models.DateTimeField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'notification:{self.id} recipient:{self.recipient_id}'

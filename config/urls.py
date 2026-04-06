@@ -36,6 +36,7 @@ def health(_request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', api_root),
+    path('api/', include('enrollment.shared_urls')),
     path('api/auth/', include('accounts.urls')),
     path('api/organization/', include('organization.urls')),
     path('api/student/', include('enrollment.urls')),
