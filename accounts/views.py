@@ -23,6 +23,10 @@ def _user_role_slugs(user):
 	return [ur.role.slug for ur in user.user_roles.select_related('role').all()]
 
 
+def _token_identifier(token):
+	return token.key[-12:]
+
+
 class LoginView(APIView):
 	permission_classes = [permissions.AllowAny]
 
@@ -171,3 +175,42 @@ class ProfileUpdateView(APIView):
 			},
 			status=status.HTTP_200_OK,
 		)
+
+
+class TokenListDestroyAllView(APIView):
+	def get(self, request):
+		current_key = getattr(request.auth, 'key', None)
+		tokens = Token.objects.filter(user=request.user).order_by('-created')
+		data = [
+			{
+				'id': _token_identifier(token),
+				'name': 'auth_token',
+				'last_used_at': None,
+				'created_at': token.created,
+				'is_current': token.key == current_key,
+			}
+			for token in tokens
+		]
+		return Response({'status': 'success', 'data': {'tokens': data}}, status=status.HTTP_200_OK)
+
+	def delete(self, request):
+		deleted, _ = Token.objects.filter(user=request.user).delete()
+		return Response(
+			{'status': 'success', 'message': 'All tokens revoked.', 'data': {'revoked_count': deleted}},
+			status=status.HTTP_200_OK,
+		)
+
+
+class TokenDestroyView(APIView):
+	def delete(self, request, token_id):
+		queryset = Token.objects.filter(user=request.user)
+		if token_id == 'current' and request.auth is not None:
+			token = request.auth
+		else:
+			token = queryset.filter(key__endswith=token_id).first()
+
+		if token is None:
+			return Response({'status': 'error', 'message': 'Token not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+		token.delete()
+		return Response({'status': 'success', 'message': 'Token revoked.'}, status=status.HTTP_200_OK)
