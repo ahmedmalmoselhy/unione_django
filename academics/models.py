@@ -280,3 +280,37 @@ class CourseRating(models.Model):
 
 	def __str__(self):
 		return f'rating:{self.student_id}:{self.course_id}:{self.rating}'
+
+
+class AuditLog(models.Model):
+	class Action(models.TextChoices):
+		CREATE = 'create', 'Create'
+		UPDATE = 'update', 'Update'
+		DELETE = 'delete', 'Delete'
+		LOGIN = 'login', 'Login'
+		LOGOUT = 'logout', 'Logout'
+		EXPORT = 'export', 'Export'
+		IMPORT = 'import', 'Import'
+		OTHER = 'other', 'Other'
+
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
+	action = models.CharField(max_length=20, choices=Action.choices, default=Action.OTHER)
+	entity_type = models.CharField(max_length=100, help_text='Model name or entity type')
+	entity_id = models.CharField(max_length=100, null=True, blank=True, help_text='Primary key of the affected entity')
+	description = models.TextField(help_text='Human-readable description of the action')
+	old_values = models.JSONField(default=dict, blank=True, help_text='Previous values before change')
+	new_values = models.JSONField(default=dict, blank=True, help_text='New values after change')
+	ip_address = models.GenericIPAddressField(null=True, blank=True)
+	user_agent = models.TextField(null=True, blank=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ['-created_at']
+		indexes = [
+			models.Index(fields=['entity_type', 'entity_id']),
+			models.Index(fields=['action', 'created_at']),
+			models.Index(fields=['user', 'created_at']),
+		]
+
+	def __str__(self):
+		return f'{self.action}:{self.entity_type}:{self.entity_id}:{self.created_at}'

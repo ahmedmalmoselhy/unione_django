@@ -15,6 +15,7 @@ from .analytics_views import (
     StudentStatisticsView,
     WebhookMetricsView,
 )
+from .audit_log_views import AuditLogDetailView, AuditLogListView
 from .organization_admin_views import (
     AdminAcademicTermDetailView,
     AdminAcademicTermsView,
@@ -50,4 +51,6 @@ urlpatterns = [
     path('analytics/webhooks', WebhookMetricsView.as_view(), name='admin-analytics-webhooks'),
     path('analytics/students', StudentStatisticsView.as_view(), name='admin-analytics-students'),
     path('analytics/professors', ProfessorStatisticsView.as_view(), name='admin-analytics-professors'),
+    path('audit-logs', AuditLogListView.as_view(), name='admin-audit-logs'),
+    path('audit-logs/<int:log_id>', AuditLogDetailView.as_view(), name='admin-audit-log-detail'),
 ]
