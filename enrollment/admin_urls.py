@@ -7,6 +7,18 @@ from .admin_views import (
     AdminWebhookDetailView,
     AdminWebhooksView,
 )
+from .organization_admin_views import (
+    AdminAcademicTermDetailView,
+    AdminAcademicTermsView,
+    AdminCourseDetailView,
+    AdminCoursesView,
+    AdminDepartmentDetailView,
+    AdminDepartmentsView,
+    AdminFacultiesView,
+    AdminFacultyDetailView,
+    AdminSectionDetailView,
+    AdminSectionsView,
+)
 
 urlpatterns = [
     path('users', AdminUsersView.as_view(), name='admin-users'),
@@ -14,4 +26,14 @@ urlpatterns = [
     path('webhooks', AdminWebhooksView.as_view(), name='admin-webhooks'),
     path('webhooks/<int:webhook_id>', AdminWebhookDetailView.as_view(), name='admin-webhook-detail'),
     path('webhooks/<int:webhook_id>/deliveries', AdminWebhookDeliveriesView.as_view(), name='admin-webhook-deliveries'),
+    path('faculties', AdminFacultiesView.as_view(), name='admin-faculties'),
+    path('faculties/<int:faculty_id>', AdminFacultyDetailView.as_view(), name='admin-faculty-detail'),
+    path('departments', AdminDepartmentsView.as_view(), name='admin-departments'),
+    path('departments/<int:department_id>', AdminDepartmentDetailView.as_view(), name='admin-department-detail'),
+    path('academic-terms', AdminAcademicTermsView.as_view(), name='admin-academic-terms'),
+    path('academic-terms/<int:term_id>', AdminAcademicTermDetailView.as_view(), name='admin-academic-term-detail'),
+    path('courses', AdminCoursesView.as_view(), name='admin-courses'),
+    path('courses/<int:course_id>', AdminCourseDetailView.as_view(), name='admin-course-detail'),
+    path('sections', AdminSectionsView.as_view(), name='admin-sections'),
+    path('sections/<int:section_id>', AdminSectionDetailView.as_view(), name='admin-section-detail'),
 ]
