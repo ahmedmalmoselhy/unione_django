@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv\\\\Scripts\\\\python -c \"from enrollment.admin_views import AdminUsersView; print\\('Import OK'\\)\")",
+      "Bash(git add:*)"
+    ]
+  }
+}
