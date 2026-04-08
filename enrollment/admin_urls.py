@@ -7,6 +7,14 @@ from .admin_views import (
     AdminWebhookDetailView,
     AdminWebhooksView,
 )
+from .analytics_views import (
+    AttendanceAnalyticsView,
+    EnrollmentAnalyticsView,
+    GradesAnalyticsView,
+    ProfessorStatisticsView,
+    StudentStatisticsView,
+    WebhookMetricsView,
+)
 from .organization_admin_views import (
     AdminAcademicTermDetailView,
     AdminAcademicTermsView,
@@ -36,4 +44,10 @@ urlpatterns = [
     path('courses/<int:course_id>', AdminCourseDetailView.as_view(), name='admin-course-detail'),
     path('sections', AdminSectionsView.as_view(), name='admin-sections'),
     path('sections/<int:section_id>', AdminSectionDetailView.as_view(), name='admin-section-detail'),
+    path('analytics/enrollment', EnrollmentAnalyticsView.as_view(), name='admin-analytics-enrollment'),
+    path('analytics/grades', GradesAnalyticsView.as_view(), name='admin-analytics-grades'),
+    path('analytics/attendance', AttendanceAnalyticsView.as_view(), name='admin-analytics-attendance'),
+    path('analytics/webhooks', WebhookMetricsView.as_view(), name='admin-analytics-webhooks'),
+    path('analytics/students', StudentStatisticsView.as_view(), name='admin-analytics-students'),
+    path('analytics/professors', ProfessorStatisticsView.as_view(), name='admin-analytics-professors'),
 ]
