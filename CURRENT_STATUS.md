@@ -62,6 +62,10 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: scoped API throttling parity implemented for login/password/enrollment/grade write flows.
 - Completed: shared announcements/notifications response behavior aligned with paginated meta payloads and unread alias support.
 - Completed: global announcements visibility/read parity implemented (university/faculty/department/section targeting with publish/expiry filtering).
+- Completed: admin import/export endpoints implemented (/api/admin/import/users, /api/admin/import/courses, /api/admin/export/enrollments, /api/admin/export/grades).
+- Completed: periodic cleanup command for old webhook deliveries implemented (cleanup_webhook_deliveries).
+- Completed: deployment process templates added for webhook scheduler (systemd + supervisor + docker-compose scheduler service).
+- Completed: automatic model-level audit trail signals added for enrollment/grade/attendance/organization/role assignment entities.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -94,6 +98,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Add admin/API observability endpoints for webhook processing metrics and recent failures.
-3. Add periodic clean-up/archival command for old webhook deliveries.
-4. Add deployment-level process manager config for run_webhook_scheduler (systemd/supervisor/container entrypoint).
+2. Expand test coverage for admin organization CRUD and analytics endpoints.
+3. Add deployment/runbook notes for enabling scheduler service in staging/production.
+4. Validate archival retention behavior in production-like workload.

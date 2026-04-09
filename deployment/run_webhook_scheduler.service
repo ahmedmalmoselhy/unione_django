@@ -1,0 +1,16 @@
+[Unit]
+Description=UniOne Django Webhook Scheduler
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/unione_django
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+ExecStart=/opt/unione_django/.venv/bin/python manage.py run_webhook_scheduler --interval-seconds 60 --limit 100
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

@@ -63,11 +63,53 @@ Base path: /api
 
 ## Admin
 
+- GET /api/admin/users
+- POST /api/admin/users
+- GET /api/admin/users/{id}
+- PATCH /api/admin/users/{id}
+- DELETE /api/admin/users/{id}
 - GET /api/admin/webhooks
 - POST /api/admin/webhooks
 - PATCH /api/admin/webhooks/{id}
 - DELETE /api/admin/webhooks/{id}
 - GET /api/admin/webhooks/{id}/deliveries
+- GET /api/admin/faculties
+- POST /api/admin/faculties
+- GET /api/admin/faculties/{id}
+- PATCH /api/admin/faculties/{id}
+- DELETE /api/admin/faculties/{id}
+- GET /api/admin/departments
+- POST /api/admin/departments
+- GET /api/admin/departments/{id}
+- PATCH /api/admin/departments/{id}
+- DELETE /api/admin/departments/{id}
+- GET /api/admin/courses
+- POST /api/admin/courses
+- GET /api/admin/courses/{id}
+- PATCH /api/admin/courses/{id}
+- DELETE /api/admin/courses/{id}
+- GET /api/admin/sections
+- POST /api/admin/sections
+- GET /api/admin/sections/{id}
+- PATCH /api/admin/sections/{id}
+- DELETE /api/admin/sections/{id}
+- GET /api/admin/academic-terms
+- POST /api/admin/academic-terms
+- GET /api/admin/academic-terms/{id}
+- PATCH /api/admin/academic-terms/{id}
+- DELETE /api/admin/academic-terms/{id}
+- GET /api/admin/analytics/enrollment
+- GET /api/admin/analytics/grades
+- GET /api/admin/analytics/attendance
+- GET /api/admin/analytics/webhooks
+- GET /api/admin/analytics/students
+- GET /api/admin/analytics/professors
+- GET /api/admin/audit-logs
+- GET /api/admin/audit-logs/{id}
+- POST /api/admin/import/users
+- POST /api/admin/import/courses
+- GET /api/admin/export/enrollments
+- GET /api/admin/export/grades
 
 ## Response Convention
 

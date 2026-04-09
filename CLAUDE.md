@@ -108,6 +108,9 @@ python manage.py dispatch_webhook_event enrollment.created --payload '{"enrollme
 # Process pending webhook deliveries (one-time)
 python manage.py process_webhook_deliveries --limit 100
 
+# Archive old webhook deliveries and purge old archive files
+python manage.py cleanup_webhook_deliveries --archive-days 30 --purge-days 90
+
 # Run webhook scheduler loop (runs continuously)
 python manage.py run_webhook_scheduler --interval-seconds 60 --limit 100
 python manage.py run_webhook_scheduler --run-once  # single cycle
@@ -119,6 +122,9 @@ Webhook settings (configurable via env or settings.py):
 - `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` (default: 10)
 - `WEBHOOK_DELIVERY_MAX_ATTEMPTS` (default: 5)
 - `WEBHOOK_DELIVERY_RETRY_BASE_SECONDS` (default: 60)
+- `WEBHOOK_DELIVERY_ARCHIVE_AFTER_DAYS` (default: 30)
+- `WEBHOOK_DELIVERY_ARCHIVE_RETENTION_DAYS` (default: 90)
+- `WEBHOOK_ARCHIVE_DIR` (default: `var/webhook_archives`)
 
 ### Code Quality
 

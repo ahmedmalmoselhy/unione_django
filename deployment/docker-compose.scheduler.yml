@@ -1,0 +1,7 @@
+services:
+  webhook-scheduler:
+    build: .
+    command: python manage.py run_webhook_scheduler --interval-seconds 60 --limit 100
+    env_file:
+      - .env
+    restart: unless-stopped

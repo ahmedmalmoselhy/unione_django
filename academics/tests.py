@@ -1,8 +1,12 @@
 import io
+import os
+import tempfile
 from urllib.error import HTTPError
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from django.urls import reverse
@@ -11,8 +15,10 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from accounts.models import Role, UserRole
-from academics.models import Webhook, WebhookDelivery
+from academics.models import AcademicTerm, AuditLog, Course, Grade, Section, Webhook, WebhookDelivery
 from academics.webhook_delivery import enqueue_webhook_deliveries, process_single_delivery
+from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
+from organization.models import Department, Faculty, University
 
 
 class _MockHTTPResponse:
@@ -166,3 +172,165 @@ class AdminWebhookAccessParityTests(APITestCase):
 
 		delete_response = self.client.delete(reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}))
 		self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class WebhookCleanupCommandTests(TestCase):
+	def test_cleanup_archives_and_deletes_old_records(self):
+		webhook = Webhook.objects.create(
+			name='Cleanup Hook',
+			target_url='https://example.test/cleanup',
+			events=['enrollment.created'],
+		)
+		old_delivery = WebhookDelivery.objects.create(
+			webhook=webhook,
+			event_name='enrollment.created',
+			payload={'id': 1},
+			status=WebhookDelivery.DeliveryStatus.SUCCESS,
+		)
+		WebhookDelivery.objects.filter(id=old_delivery.id).update(
+			created_at=timezone.now() - timezone.timedelta(days=45),
+		)
+
+		with tempfile.TemporaryDirectory() as temp_dir:
+			call_command(
+				'cleanup_webhook_deliveries',
+				archive_days=30,
+				purge_days=90,
+				output_dir=temp_dir,
+			)
+
+			self.assertFalse(WebhookDelivery.objects.filter(id=old_delivery.id).exists())
+			archive_files = [name for name in os.listdir(temp_dir) if name.endswith('.jsonl')]
+			self.assertEqual(len(archive_files), 1)
+
+
+class AdminImportExportTests(APITestCase):
+	def setUp(self):
+		self.university = University.objects.create(name='Uni Admin', code='UA', country='EG', city='Cairo', established_year=1990)
+		self.faculty = Faculty.objects.create(university=self.university, name='Engineering', code='ENGA')
+		self.department = Department.objects.create(faculty=self.faculty, name='Computer Science', code='CSA')
+
+		self.admin_role = Role.objects.create(name='Admin', slug='admin', permissions={})
+		self.student_role = Role.objects.create(name='Student', slug='student', permissions={})
+		self.prof_role = Role.objects.create(name='Professor', slug='professor', permissions={})
+
+		self.admin_user = User.objects.create_user(username='admin_ie', email='admin_ie@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.admin_user, role=self.admin_role)
+
+		self.prof_user = User.objects.create_user(username='prof_ie', email='prof_ie@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.prof_user, role=self.prof_role)
+		self.professor = ProfessorProfile.objects.create(
+			user=self.prof_user,
+			staff_number='P-IE-1',
+			department=self.department,
+			hired_at='2020-01-01',
+		)
+
+		self.student_user = User.objects.create_user(username='student_ie', email='student_ie@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.student_user, role=self.student_role)
+		self.student_profile = StudentProfile.objects.create(
+			user=self.student_user,
+			student_number='S-IE-1',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+
+		self.term = AcademicTerm.objects.create(
+			name='Fall IE',
+			start_date='2025-09-01',
+			end_date='2026-01-15',
+			registration_start='2025-08-01',
+			registration_end='2025-08-25',
+			is_active=True,
+		)
+		self.course = Course.objects.create(code='CS-IE-1', name='IE Course', credit_hours=3, lecture_hours=3, lab_hours=0, level=100)
+		self.section = Section.objects.create(course=self.course, professor=self.professor, academic_term=self.term, semester=1, capacity=30, schedule={})
+		self.enrollment = CourseEnrollment.objects.create(student=self.student_profile, section=self.section, academic_term=self.term, status='active')
+		self.grade = Grade.objects.create(enrollment=self.enrollment, points=95, letter_grade='A', status='complete')
+
+		token = Token.objects.create(user=self.admin_user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+	def test_import_users_endpoint_accepts_csv_file(self):
+		csv_content = 'username,email,password,roles\nnew_user,new_user@example.com,Pass1234!@#,student\n'
+		upload = SimpleUploadedFile('users.csv', csv_content.encode('utf-8'), content_type='text/csv')
+
+		response = self.client.post(reverse('admin-import-users'), {'file': upload}, format='multipart')
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response.data['data']['created'], 1)
+		self.assertTrue(User.objects.filter(username='new_user').exists())
+
+	def test_export_enrollments_returns_csv_attachment(self):
+		response = self.client.get(reverse('admin-export-enrollments'))
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response['Content-Type'], 'text/csv')
+		self.assertIn('attachment; filename=', response['Content-Disposition'])
+		self.assertIn('enrollment_id,student_number', response.content.decode('utf-8'))
+
+	def test_export_grades_returns_csv_attachment(self):
+		response = self.client.get(reverse('admin-export-grades'))
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertEqual(response['Content-Type'], 'text/csv')
+		self.assertIn('grade_id,enrollment_id', response.content.decode('utf-8'))
+
+
+class AuditTrailSignalTests(TestCase):
+	def setUp(self):
+		self.university = University.objects.create(name='Uni Audit', code='UAD', country='EG', city='Cairo', established_year=1990)
+		self.faculty = Faculty.objects.create(university=self.university, name='Engineering', code='ENGD')
+		self.department = Department.objects.create(faculty=self.faculty, name='Computer Science', code='CSD')
+
+		self.student_role = Role.objects.create(name='Student Audit', slug='student_audit', permissions={})
+		self.prof_role = Role.objects.create(name='Professor Audit', slug='professor_audit', permissions={})
+
+		self.student_user = User.objects.create_user(username='student_audit', email='student_audit@example.com', password='Pass1234!@#')
+		self.prof_user = User.objects.create_user(username='prof_audit', email='prof_audit@example.com', password='Pass1234!@#')
+
+		UserRole.objects.create(user=self.student_user, role=self.student_role)
+		UserRole.objects.create(user=self.prof_user, role=self.prof_role)
+
+		self.student_profile = StudentProfile.objects.create(
+			user=self.student_user,
+			student_number='SA-1',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+		self.professor = ProfessorProfile.objects.create(
+			user=self.prof_user,
+			staff_number='PA-1',
+			department=self.department,
+			hired_at='2020-01-01',
+		)
+		self.term = AcademicTerm.objects.create(
+			name='Fall Audit',
+			start_date='2025-09-01',
+			end_date='2026-01-15',
+			registration_start='2025-08-01',
+			registration_end='2025-08-25',
+			is_active=True,
+		)
+		self.course = Course.objects.create(code='CS-AUD', name='Audit Course', credit_hours=3)
+		self.section = Section.objects.create(course=self.course, professor=self.professor, academic_term=self.term, semester=1, capacity=30, schedule={})
+
+	def test_course_enrollment_create_and_update_writes_audit_log(self):
+		enrollment = CourseEnrollment.objects.create(
+			student=self.student_profile,
+			section=self.section,
+			academic_term=self.term,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+		self.assertTrue(
+			AuditLog.objects.filter(entity_type='CourseEnrollment', entity_id=str(enrollment.id), action=AuditLog.Action.CREATE).exists()
+		)
+
+		enrollment.status = CourseEnrollment.EnrollmentStatus.DROPPED
+		enrollment.save(update_fields=['status', 'updated_at'])
+		self.assertTrue(
+			AuditLog.objects.filter(entity_type='CourseEnrollment', entity_id=str(enrollment.id), action=AuditLog.Action.UPDATE).exists()
+		)
