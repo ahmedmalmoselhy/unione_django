@@ -68,6 +68,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: automatic model-level audit trail signals added for enrollment/grade/attendance/organization/role assignment entities.
 - Completed: admin management/analytics/audit API test coverage added and passing.
 - Completed: GitHub Actions Django workflow updated to run system checks and full app test suite.
+- Completed: GitHub Actions coverage artifacts and fail-under gate enabled (coverage.xml + threshold).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
