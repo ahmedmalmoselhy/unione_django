@@ -8,7 +8,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from academics.models import Announcement, AcademicTerm, Course, EnrollmentWaitlist, GlobalAnnouncementRead, Grade, Notification, Section, SectionAnnouncement
+from academics.models import Announcement, AcademicTerm, AttendanceRecord, AttendanceSession, Course, EnrollmentWaitlist, GlobalAnnouncementRead, Grade, Notification, Section, SectionAnnouncement
 from accounts.models import Role, UserRole
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
@@ -441,3 +441,201 @@ class SharedEndpointsParityTests(APITestCase):
 		read_response = self.client.post(reverse('shared-announcement-read', kwargs={'announcement_id': univ_announcement.id}))
 		self.assertEqual(read_response.status_code, status.HTTP_200_OK)
 		self.assertTrue(GlobalAnnouncementRead.objects.filter(user=self.user, announcement=univ_announcement).exists())
+
+
+class AdminManagementAPITests(APITestCase):
+	def setUp(self):
+		self.university = University.objects.create(
+			name='Uni Admin',
+			code='UA1',
+			country='EG',
+			city='Cairo',
+			established_year=1990,
+		)
+		self.faculty = Faculty.objects.create(university=self.university, name='Engineering', code='ENGA')
+		self.department = Department.objects.create(faculty=self.faculty, name='Computer Science', code='CSA')
+
+		self.admin_role = Role.objects.create(name='Admin', slug='admin', permissions={})
+		self.student_role = Role.objects.create(name='Student', slug='student', permissions={})
+		self.prof_role = Role.objects.create(name='Professor', slug='professor', permissions={})
+
+		self.admin_user = User.objects.create_user(username='admin_mgmt', email='admin_mgmt@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.admin_user, role=self.admin_role)
+
+		self.prof_user = User.objects.create_user(username='prof_mgmt', email='prof_mgmt@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.prof_user, role=self.prof_role)
+		self.professor = ProfessorProfile.objects.create(
+			user=self.prof_user,
+			staff_number='P-MGMT-1',
+			department=self.department,
+			hired_at='2020-01-01',
+		)
+
+		self.student_user = User.objects.create_user(username='student_mgmt', email='student_mgmt@example.com', password='Pass1234!@#')
+		UserRole.objects.create(user=self.student_user, role=self.student_role)
+		self.student_profile = StudentProfile.objects.create(
+			user=self.student_user,
+			student_number='S-MGMT-1',
+			faculty=self.faculty,
+			department=self.department,
+			academic_year=2,
+			semester=1,
+			enrolled_at='2024-09-01',
+		)
+
+		self.term = AcademicTerm.objects.create(
+			name='Fall 2026',
+			start_date='2026-09-01',
+			end_date='2027-01-15',
+			registration_start='2026-08-01',
+			registration_end='2026-08-25',
+			is_active=True,
+		)
+		self.course = Course.objects.create(code='CSMG101', name='Admin Testing', credit_hours=3, lecture_hours=3, lab_hours=0, level=100)
+		self.section = Section.objects.create(
+			course=self.course,
+			professor=self.professor,
+			academic_term=self.term,
+			semester=1,
+			capacity=30,
+			schedule={'days': [1, 3], 'start_time': '09:00', 'end_time': '10:30'},
+		)
+		self.enrollment = CourseEnrollment.objects.create(
+			student=self.student_profile,
+			section=self.section,
+			academic_term=self.term,
+			status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+		)
+		self.grade = Grade.objects.create(enrollment=self.enrollment, points=90, letter_grade='A', status='complete')
+
+		self.attendance_session = AttendanceSession.objects.create(
+			section=self.section,
+			created_by=self.professor,
+			session_date='2026-10-01',
+			title='Week 1',
+		)
+		AttendanceRecord.objects.create(
+			session=self.attendance_session,
+			enrollment=self.enrollment,
+			status=AttendanceRecord.Status.PRESENT,
+		)
+
+		token = Token.objects.create(user=self.admin_user)
+		self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
+
+	def test_admin_users_crud_flow(self):
+		create_response = self.client.post(
+			reverse('admin-users'),
+			{
+				'username': 'managed_user',
+				'email': 'managed_user@example.com',
+				'password': 'Pass1234!@#',
+				'roles': ['student'],
+			},
+			format='json',
+		)
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+		user_id = create_response.data['data']['id']
+
+		list_response = self.client.get(reverse('admin-users'))
+		self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+		self.assertGreaterEqual(len(list_response.data['data']), 1)
+
+		patch_response = self.client.patch(
+			reverse('admin-user-detail', kwargs={'user_id': user_id}),
+			{'first_name': 'Managed'},
+			format='json',
+		)
+		self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(patch_response.data['data']['first_name'], 'Managed')
+
+		delete_response = self.client.delete(reverse('admin-user-detail', kwargs={'user_id': user_id}))
+		self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
+		self.assertFalse(User.objects.get(id=user_id).is_active)
+
+	def test_admin_organization_write_endpoints(self):
+		faculty_response = self.client.post(
+			reverse('admin-faculties'),
+			{'name': 'Business', 'code': 'BUS', 'university_id': self.university.id},
+			format='json',
+		)
+		self.assertEqual(faculty_response.status_code, status.HTTP_201_CREATED)
+		new_faculty_id = faculty_response.data['data']['id']
+
+		department_response = self.client.post(
+			reverse('admin-departments'),
+			{'name': 'Finance', 'code': 'FIN', 'faculty_id': new_faculty_id},
+			format='json',
+		)
+		self.assertEqual(department_response.status_code, status.HTTP_201_CREATED)
+
+		course_response = self.client.post(
+			reverse('admin-courses'),
+			{'code': 'BUS101', 'name': 'Intro Business', 'credit_hours': 3},
+			format='json',
+		)
+		self.assertEqual(course_response.status_code, status.HTTP_201_CREATED)
+
+		term_response = self.client.post(
+			reverse('admin-academic-terms'),
+			{
+				'name': 'Spring 2027',
+				'start_date': '2027-02-01',
+				'end_date': '2027-06-15',
+				'registration_start': '2027-01-01',
+				'registration_end': '2027-01-20',
+				'is_active': False,
+			},
+			format='json',
+		)
+		self.assertEqual(term_response.status_code, status.HTTP_201_CREATED)
+
+		section_response = self.client.post(
+			reverse('admin-sections'),
+			{
+				'course_id': self.course.id,
+				'professor_id': self.professor.id,
+				'academic_term_id': self.term.id,
+				'semester': 1,
+				'capacity': 40,
+			},
+			format='json',
+		)
+		self.assertEqual(section_response.status_code, status.HTTP_201_CREATED)
+
+	def test_admin_analytics_endpoints_return_expected_shape(self):
+		enrollment_response = self.client.get(reverse('admin-analytics-enrollment'))
+		self.assertEqual(enrollment_response.status_code, status.HTTP_200_OK)
+		self.assertIn('summary', enrollment_response.data['data'])
+		self.assertGreaterEqual(enrollment_response.data['data']['summary']['total'], 1)
+
+		grades_response = self.client.get(reverse('admin-analytics-grades'))
+		self.assertEqual(grades_response.status_code, status.HTTP_200_OK)
+		self.assertIn('summary', grades_response.data['data'])
+		self.assertGreaterEqual(grades_response.data['data']['summary']['total'], 1)
+
+		attendance_response = self.client.get(reverse('admin-analytics-attendance'))
+		self.assertEqual(attendance_response.status_code, status.HTTP_200_OK)
+		self.assertIn('summary', attendance_response.data['data'])
+		self.assertGreaterEqual(attendance_response.data['data']['summary']['total_records'], 1)
+
+	def test_admin_audit_log_create_list_and_detail(self):
+		create_response = self.client.post(
+			reverse('admin-audit-logs'),
+			{
+				'entity_type': 'manual_check',
+				'description': 'manual audit event',
+				'action': 'other',
+			},
+			format='json',
+		)
+		self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+		log_id = create_response.data['data']['id']
+
+		list_response = self.client.get(reverse('admin-audit-logs'))
+		self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+		self.assertGreaterEqual(len(list_response.data['data']), 1)
+
+		detail_response = self.client.get(reverse('admin-audit-log-detail', kwargs={'log_id': log_id}))
+		self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+		self.assertEqual(detail_response.data['data']['id'], log_id)

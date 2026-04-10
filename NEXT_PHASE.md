@@ -24,6 +24,8 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
   - deployment/run_webhook_scheduler.supervisor.conf
   - deployment/docker-compose.scheduler.yml
 - Automatic model-level audit trail via signals for key entities.
+- Admin management/analytics/audit API tests added.
+- GitHub Actions workflow updated to run Django system checks and app-level tests.
 
 ## Remaining Work
 
@@ -35,7 +37,6 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 
 ### Test and Quality Hardening
 
-- Add broader tests for admin organization CRUD and analytics filters.
 - Add integration tests for import validation edge cases and malformed files.
 - Add production smoke-test checklist for webhook scheduler + cleanup command.
 
@@ -43,4 +44,4 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 
 1. PostgreSQL migration and smoke validation.
 2. Scheduler service rollout validation.
-3. Test coverage expansion for admin and import/export edge cases.
+3. Import/export edge-case coverage expansion.

@@ -66,6 +66,8 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: periodic cleanup command for old webhook deliveries implemented (cleanup_webhook_deliveries).
 - Completed: deployment process templates added for webhook scheduler (systemd + supervisor + docker-compose scheduler service).
 - Completed: automatic model-level audit trail signals added for enrollment/grade/attendance/organization/role assignment entities.
+- Completed: admin management/analytics/audit API test coverage added and passing.
+- Completed: GitHub Actions Django workflow updated to run system checks and full app test suite.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -98,6 +100,6 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Expand test coverage for admin organization CRUD and analytics endpoints.
-3. Add deployment/runbook notes for enabling scheduler service in staging/production.
-4. Validate archival retention behavior in production-like workload.
+2. Add deployment/runbook notes for enabling scheduler service in staging/production.
+3. Validate archival retention behavior in production-like workload.
+4. Validate PostgreSQL-specific CI path when DB service is introduced.
