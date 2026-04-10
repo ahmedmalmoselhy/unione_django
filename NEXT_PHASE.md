@@ -31,6 +31,8 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 - Comprehensive admin analytics/import-export/webhook validation tests added.
 - Organization-admin comprehensive CRUD/filter/scope coverage added.
 - App-code coverage baseline increased to 86% (tests/migrations omitted).
+- Shared endpoints, admin views, audit log views, and webhook delivery engine now have comprehensive branch coverage.
+- App-code coverage baseline increased further to 92% (tests/migrations omitted).
 
 ## Remaining Work
 
@@ -44,10 +46,10 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 
 - Add integration tests for malformed CSV file uploads and large-file import behavior.
 - Add production smoke-test checklist for webhook scheduler + cleanup command.
-- Expand coverage for remaining lower modules (`enrollment/shared_views.py`, `enrollment/admin_views.py`, `academics/webhook_delivery.py`).
+- Expand deep branch coverage in the largest remaining modules (`enrollment/views.py`, `enrollment/organization_admin_views.py`).
 
 ## Priority
 
 1. PostgreSQL migration and smoke validation.
 2. Scheduler service rollout validation.
-3. Remaining lower-module coverage expansion.
+3. Deep branch coverage expansion in enrollment/views and organization_admin_views.

@@ -74,6 +74,9 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: comprehensive admin analytics/import-export/admin webhook validation tests added.
 - Completed: comprehensive organization-admin CRUD/filter/scope tests expanded significantly.
 - Completed: app-code coverage baseline increased to 86% (tests/migrations omitted), with strong gains in low-coverage admin modules.
+- Completed: shared endpoints, admin views, audit logs, and webhook delivery engine now covered with comprehensive branch tests.
+- Completed: admin_views, shared_views, import_export_views, analytics_views, audit_log_views, and webhook_delivery achieved near/full coverage.
+- Completed: app-code coverage baseline increased to 92% (tests/migrations omitted), while CI fail-under remains enforced.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -108,4 +111,5 @@ Overall Status: ACTIVE DEVELOPMENT
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
 2. Add deployment/runbook notes for enabling scheduler service in staging/production.
 3. Validate archival retention behavior in production-like workload.
-4. Validate PostgreSQL-specific CI path when DB service is introduced.
+4. Expand remaining deep-branch coverage in enrollment/views and organization_admin_views.
+5. Validate PostgreSQL-specific CI path when DB service is introduced.

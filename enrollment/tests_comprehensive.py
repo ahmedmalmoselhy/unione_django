@@ -1,17 +1,21 @@
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AnonymousUser, User
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from academics.models import (
     AcademicTerm,
+    Announcement,
+    AuditLog,
     AttendanceRecord,
     AttendanceSession,
     Course,
     CourseRating,
     EnrollmentWaitlist,
+    GlobalAnnouncementRead,
     Grade,
     Notification,
     Section,
@@ -20,6 +24,9 @@ from academics.models import (
     WebhookDelivery,
 )
 from accounts.models import Role, UserRole
+from enrollment.admin_views import _get_user_scopes as _admin_get_user_scopes
+from enrollment.admin_views import _user_has_scoped_role
+from enrollment.audit_log_views import _is_super_admin as _audit_is_super_admin
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from enrollment.services import (
     _parse_hhmm,
@@ -30,6 +37,7 @@ from enrollment.services import (
     build_student_transcript,
     build_student_transcript_pdf_bytes,
 )
+from enrollment.shared_views import _user_role_slugs
 from organization.models import Department, Faculty, University
 
 
@@ -749,6 +757,11 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
             email='fac_noscope_comp@example.com',
             password='Pass1234!@#',
         )
+        self.department_scoped_admin_user = User.objects.create_user(
+            username='dep_scope_comp',
+            email='dep_scope_comp@example.com',
+            password='Pass1234!@#',
+        )
         UserRole.objects.create(
             user=self.other_faculty_admin_user,
             role=self.faculty_admin_role,
@@ -758,6 +771,12 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
         UserRole.objects.create(
             user=self.no_scope_faculty_admin_user,
             role=self.faculty_admin_role,
+        )
+        UserRole.objects.create(
+            user=self.department_scoped_admin_user,
+            role=self.department_admin_role,
+            scope='department',
+            scope_id=self.department.id,
         )
 
     def test_admin_user_and_webhook_validation_branches(self):
@@ -880,6 +899,9 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
         missing_import_payload = self.client.post(reverse('admin-import-users'), {}, format='json')
         self.assertEqual(missing_import_payload.status_code, status.HTTP_400_BAD_REQUEST)
 
+        missing_courses_import_payload = self.client.post(reverse('admin-import-courses'), {}, format='json')
+        self.assertEqual(missing_courses_import_payload.status_code, status.HTTP_400_BAD_REQUEST)
+
         import_users_response = self.client.post(
             reverse('admin-import-users'),
             {
@@ -895,10 +917,31 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
         self.assertEqual(import_users_response.data['data']['created'], 1)
         self.assertEqual(import_users_response.data['data']['skipped'], 2)
 
+        import_users_with_bool_and_role_list = self.client.post(
+            reverse('admin-import-users'),
+            {
+                'rows': [
+                    {
+                        'username': 'bulk_user_2',
+                        'email': 'bulk_user_2@example.com',
+                        'is_superuser': 'yes',
+                        'is_staff': True,
+                        'roles': ['student', 'professor'],
+                    }
+                ]
+            },
+            format='json',
+            HTTP_X_FORWARDED_FOR='10.1.1.1, 10.1.1.2',
+        )
+        self.assertEqual(import_users_with_bool_and_role_list.status_code, status.HTTP_200_OK)
+        self.assertTrue(User.objects.get(username='bulk_user_2').is_staff)
+        self.assertTrue(User.objects.get(username='bulk_user_2').is_superuser)
+
         import_courses_response = self.client.post(
             reverse('admin-import-courses'),
             {
                 'rows': [
+                    {'code': '', 'name': 'Missing Code', 'credit_hours': '3'},
                     {'code': 'BULK101', 'name': 'Bulk Course Bad', 'credit_hours': 'x'},
                     {'code': 'BULK101', 'name': 'Bulk Course Good', 'credit_hours': '3', 'lecture_hours': '2', 'lab_hours': '1'},
                     {'code': 'BULK101', 'name': 'Bulk Course Dup', 'credit_hours': '3'},
@@ -908,7 +951,38 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
         )
         self.assertEqual(import_courses_response.status_code, status.HTTP_200_OK)
         self.assertEqual(import_courses_response.data['data']['created'], 1)
-        self.assertEqual(import_courses_response.data['data']['skipped'], 2)
+        self.assertEqual(import_courses_response.data['data']['skipped'], 3)
+
+        self._auth(self.department_scoped_admin_user)
+        export_enrollments_filtered = self.client.get(
+            reverse('admin-export-enrollments'),
+            {
+                'academic_term_id': self.term.id,
+                'course_id': self.course.id,
+                'status': CourseEnrollment.EnrollmentStatus.ACTIVE,
+            },
+            HTTP_X_FORWARDED_FOR='10.2.2.2, 10.2.2.3',
+        )
+        self.assertEqual(export_enrollments_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(export_enrollments_filtered.content.decode('utf-8').strip().splitlines()), 2)
+
+        export_grades_filtered = self.client.get(
+            reverse('admin-export-grades'),
+            {
+                'academic_term_id': self.term.id,
+                'course_id': self.course.id,
+            },
+            HTTP_X_FORWARDED_FOR='10.3.3.3, 10.3.3.4',
+        )
+        self.assertEqual(export_grades_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(export_grades_filtered.content.decode('utf-8').strip().splitlines()), 2)
+
+        self._auth(self.other_faculty_admin_user)
+        faculty_scoped_enrollments_export = self.client.get(reverse('admin-export-enrollments'))
+        self.assertEqual(faculty_scoped_enrollments_export.status_code, status.HTTP_200_OK)
+
+        faculty_scoped_grades_export = self.client.get(reverse('admin-export-grades'))
+        self.assertEqual(faculty_scoped_grades_export.status_code, status.HTTP_200_OK)
 
         self._auth(self.other_faculty_admin_user)
 
@@ -983,3 +1057,350 @@ class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APIT
         grades_analytics = self.client.get(reverse('admin-analytics-grades'))
         self.assertEqual(grades_analytics.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(grades_analytics.data['data']['summary']['total'], 1)
+
+    def test_analytics_filter_query_paths_for_admin_and_department_scope(self):
+        self._auth(self.admin_user)
+
+        enrollment_filtered = self.client.get(
+            reverse('admin-analytics-enrollment'),
+            {
+                'academic_term_id': self.term.id,
+                'faculty_id': self.faculty.id,
+                'department_id': self.department.id,
+            },
+        )
+        self.assertEqual(enrollment_filtered.status_code, status.HTTP_200_OK)
+
+        grades_filtered = self.client.get(
+            reverse('admin-analytics-grades'),
+            {
+                'academic_term_id': self.term.id,
+                'course_id': self.course.id,
+                'faculty_id': self.faculty.id,
+            },
+        )
+        self.assertEqual(grades_filtered.status_code, status.HTTP_200_OK)
+
+        attendance_filtered = self.client.get(
+            reverse('admin-analytics-attendance'),
+            {
+                'academic_term_id': self.term.id,
+                'section_id': self.section.id,
+                'faculty_id': self.faculty.id,
+            },
+        )
+        self.assertEqual(attendance_filtered.status_code, status.HTTP_200_OK)
+
+        self._auth(self.department_scoped_admin_user)
+
+        dep_enrollment = self.client.get(reverse('admin-analytics-enrollment'))
+        self.assertEqual(dep_enrollment.status_code, status.HTTP_200_OK)
+
+        dep_grades = self.client.get(reverse('admin-analytics-grades'))
+        self.assertEqual(dep_grades.status_code, status.HTTP_200_OK)
+
+        dep_attendance = self.client.get(reverse('admin-analytics-attendance'))
+        self.assertEqual(dep_attendance.status_code, status.HTTP_200_OK)
+
+        dep_students = self.client.get(reverse('admin-analytics-students'))
+        self.assertEqual(dep_students.status_code, status.HTTP_200_OK)
+
+        dep_professors = self.client.get(reverse('admin-analytics-professors'))
+        self.assertEqual(dep_professors.status_code, status.HTTP_200_OK)
+
+
+class SharedAdminAndAuditCoverageTests(_BaseEnrollmentSetup, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.faculty_admin_user = User.objects.create_user(
+            username='fac_admin_shared_cov',
+            email='fac_admin_shared_cov@example.com',
+            password='Pass1234!@#',
+        )
+        self.department_admin_user = User.objects.create_user(
+            username='dep_admin_shared_cov',
+            email='dep_admin_shared_cov@example.com',
+            password='Pass1234!@#',
+        )
+        UserRole.objects.create(
+            user=self.faculty_admin_user,
+            role=self.faculty_admin_role,
+            scope='faculty',
+            scope_id=self.faculty.id,
+        )
+        UserRole.objects.create(
+            user=self.department_admin_user,
+            role=self.department_admin_role,
+            scope='department',
+            scope_id=self.department.id,
+        )
+
+    def test_helper_functions_and_admin_user_edge_paths(self):
+        self.assertIn('student', _user_role_slugs(self.student_user))
+        self.assertEqual(_user_role_slugs(AnonymousUser()), set())
+
+        self.assertTrue(_user_has_scoped_role(self.faculty_admin_user, 'faculty_admin', 'faculty', self.faculty.id))
+        self.assertFalse(_user_has_scoped_role(self.faculty_admin_user, 'faculty_admin', 'faculty', self.other_faculty.id))
+
+        scopes = _admin_get_user_scopes(self.faculty_admin_user)
+        self.assertFalse(scopes['is_super'])
+        self.assertIn(self.faculty.id, scopes['faculties'])
+
+        department_scopes = _admin_get_user_scopes(self.department_admin_user)
+        self.assertIn(self.department.id, department_scopes['departments'])
+
+        self.assertTrue(_audit_is_super_admin(self.admin_user))
+        self.assertFalse(_audit_is_super_admin(self.student_user))
+
+        self._auth(self.admin_user)
+
+        duplicate_username = self.client.post(
+            reverse('admin-users'),
+            {'username': self.student_user.username, 'email': 'newdup@example.com', 'password': 'Pass1234!@#'},
+            format='json',
+        )
+        self.assertEqual(duplicate_username.status_code, status.HTTP_400_BAD_REQUEST)
+
+        duplicate_email = self.client.post(
+            reverse('admin-users'),
+            {'username': 'newdupuser', 'email': self.student_user.email, 'password': 'Pass1234!@#'},
+            format='json',
+        )
+        self.assertEqual(duplicate_email.status_code, status.HTTP_400_BAD_REQUEST)
+
+        created_user = self.client.post(
+            reverse('admin-users'),
+            {
+                'username': 'admin_cov_user',
+                'email': 'admin_cov_user@example.com',
+                'password': 'Pass1234!@#',
+                'roles': [
+                    {'role': 'faculty_admin', 'scope': 'faculty', 'scope_id': self.faculty.id},
+                    123,
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(created_user.status_code, status.HTTP_201_CREATED)
+        managed_user_id = created_user.data['data']['id']
+
+        filtered_list = self.client.get(
+            reverse('admin-users'),
+            {'role': 'faculty_admin', 'is_active': 'true', 'search': 'admin_cov_user', 'limit': 'bad'},
+        )
+        self.assertEqual(filtered_list.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(filtered_list.data['data']), 1)
+
+        patch_user = self.client.patch(
+            reverse('admin-user-detail', kwargs={'user_id': managed_user_id}),
+            {
+                'password': 'NewPass1234!@#',
+                'is_staff': True,
+                'profile': {'phone': '+2010000000', 'avatar_path': '/avatars/1.png'},
+                'roles': [
+                    'student',
+                    {'role': 'department_admin', 'scope': 'department', 'scope_id': self.department.id},
+                    None,
+                ],
+            },
+            format='json',
+        )
+        self.assertEqual(patch_user.status_code, status.HTTP_200_OK)
+
+        managed_detail = self.client.get(reverse('admin-user-detail', kwargs={'user_id': managed_user_id}))
+        self.assertEqual(managed_detail.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(
+            UserRole.objects.filter(user_id=managed_user_id, role__slug='department_admin', scope='department', scope_id=self.department.id).count(),
+            1,
+        )
+
+        missing_detail = self.client.get(reverse('admin-user-detail', kwargs={'user_id': 999999}))
+        self.assertEqual(missing_detail.status_code, status.HTTP_404_NOT_FOUND)
+
+        missing_patch = self.client.patch(
+            reverse('admin-user-detail', kwargs={'user_id': 999999}),
+            {'first_name': 'x'},
+            format='json',
+        )
+        self.assertEqual(missing_patch.status_code, status.HTTP_404_NOT_FOUND)
+
+        missing_delete = self.client.delete(reverse('admin-user-detail', kwargs={'user_id': 999999}))
+        self.assertEqual(missing_delete.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_webhook_delivery_list_shared_endpoints_and_audit_filters(self):
+        self._auth(self.admin_user)
+
+        bad_headers = self.client.post(
+            reverse('admin-webhooks'),
+            {'name': 'Bad Headers Hook', 'target_url': 'https://example.com/bad', 'headers': 'x'},
+            format='json',
+        )
+        self.assertEqual(bad_headers.status_code, status.HTTP_400_BAD_REQUEST)
+
+        create_hook = self.client.post(
+            reverse('admin-webhooks'),
+            {
+                'name': 'Deliveries Hook',
+                'target_url': 'https://example.com/deliveries',
+                'events': ['grade.updated'],
+                'headers': {'x-source': 'tests'},
+            },
+            format='json',
+        )
+        self.assertEqual(create_hook.status_code, status.HTTP_201_CREATED)
+        hook_id = create_hook.data['data']['id']
+        hook = Webhook.objects.get(id=hook_id)
+
+        WebhookDelivery.objects.create(
+            webhook=hook,
+            event_name='grade.updated',
+            status=WebhookDelivery.DeliveryStatus.PENDING,
+            attempt_count=1,
+        )
+        WebhookDelivery.objects.create(
+            webhook=hook,
+            event_name='grade.updated',
+            status=WebhookDelivery.DeliveryStatus.FAILED,
+            attempt_count=2,
+            error_message='boom',
+        )
+
+        filtered_deliveries = self.client.get(
+            reverse('admin-webhook-deliveries', kwargs={'webhook_id': hook_id}),
+            {'status': WebhookDelivery.DeliveryStatus.FAILED, 'limit': '1'},
+        )
+        self.assertEqual(filtered_deliveries.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(filtered_deliveries.data['data']['deliveries']), 1)
+
+        bad_patch_headers = self.client.patch(
+            reverse('admin-webhook-detail', kwargs={'webhook_id': hook_id}),
+            {'headers': 'wrong'},
+            format='json',
+        )
+        self.assertEqual(bad_patch_headers.status_code, status.HTTP_400_BAD_REQUEST)
+
+        super_user = User.objects.create_superuser(
+            username='root_cov',
+            email='root_cov@example.com',
+            password='Pass1234!@#',
+        )
+        root_token = Token.objects.create(user=super_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {root_token.key}')
+        superuser_hook_list = self.client.get(reverse('admin-webhooks'))
+        self.assertEqual(superuser_hook_list.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(superuser_hook_list.data['data']), 1)
+
+        self._auth(self.prof_user)
+        Notification.objects.create(recipient=self.prof_user, title='N1', body='Body', notification_type='general')
+        notif = Notification.objects.create(recipient=self.prof_user, title='N2', body='Body', notification_type='general')
+
+        shared_notifs = self.client.get(reverse('shared-notifications'), {'unread_only': 'yes', 'per_page': 'x', 'page': 'x'})
+        self.assertEqual(shared_notifs.status_code, status.HTTP_200_OK)
+        self.assertEqual(shared_notifs.data['meta']['current_page'], 1)
+
+        read_missing = self.client.post(reverse('shared-notification-read', kwargs={'notification_id': 999999}))
+        self.assertEqual(read_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        read_first = self.client.post(reverse('shared-notification-read', kwargs={'notification_id': notif.id}))
+        self.assertEqual(read_first.status_code, status.HTTP_200_OK)
+        read_second = self.client.post(reverse('shared-notification-read', kwargs={'notification_id': notif.id}))
+        self.assertEqual(read_second.status_code, status.HTTP_200_OK)
+
+        read_all = self.client.post(reverse('shared-notifications-read-all'))
+        self.assertEqual(read_all.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(read_all.data['data']['updated_count'], 0)
+
+        delete_missing = self.client.delete(reverse('shared-notification-delete', kwargs={'notification_id': 999999}))
+        self.assertEqual(delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        deletable = Notification.objects.create(recipient=self.prof_user, title='N3', body='Body', notification_type='general')
+        delete_existing = self.client.delete(reverse('shared-notification-delete', kwargs={'notification_id': deletable.id}))
+        self.assertEqual(delete_existing.status_code, status.HTTP_200_OK)
+
+        published = Announcement.objects.create(
+            title='Prof Visible',
+            body='Prof Body',
+            type='general',
+            visibility=Announcement.Visibility.DEPARTMENT,
+            target_id=self.department.id,
+            published_at=timezone.now(),
+            author=self.admin_user,
+        )
+        future_announcement = Announcement.objects.create(
+            title='Future Hidden',
+            body='Hidden',
+            type='general',
+            visibility=Announcement.Visibility.UNIVERSITY,
+            published_at=timezone.now() + timezone.timedelta(days=1),
+            author=self.admin_user,
+        )
+        self.assertIsNotNone(future_announcement)
+
+        ann_list = self.client.get(reverse('shared-announcements'), {'section_id': self.section.id, 'per_page': 'x', 'page': 'x'})
+        self.assertEqual(ann_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(ann_list.data['meta']['current_page'], 1)
+
+        ann_read_missing = self.client.post(reverse('shared-announcement-read', kwargs={'announcement_id': 999999}))
+        self.assertEqual(ann_read_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        ann_read_ok = self.client.post(reverse('shared-announcement-read', kwargs={'announcement_id': published.id}))
+        self.assertEqual(ann_read_ok.status_code, status.HTTP_200_OK)
+        self.assertTrue(GlobalAnnouncementRead.objects.filter(user=self.prof_user, announcement=published).exists())
+
+        self._auth(self.admin_user)
+        now = timezone.now()
+        old_log = AuditLog.objects.create(
+            user=self.admin_user,
+            action=AuditLog.Action.OTHER,
+            entity_type='batch',
+            entity_id='old1',
+            description='old log',
+        )
+        AuditLog.objects.filter(id=old_log.id).update(created_at=now - timezone.timedelta(days=2))
+
+        new_log = AuditLog.objects.create(
+            user=self.admin_user,
+            action=AuditLog.Action.EXPORT,
+            entity_type='batch',
+            entity_id='new1',
+            description='new log',
+        )
+
+        bad_audit_create = self.client.post(reverse('admin-audit-logs'), {'entity_type': 'x'}, format='json')
+        self.assertEqual(bad_audit_create.status_code, status.HTTP_400_BAD_REQUEST)
+
+        ok_audit_create = self.client.post(
+            reverse('admin-audit-logs'),
+            {
+                'entity_type': 'batch',
+                'description': 'forwarded ip check',
+                'action': AuditLog.Action.OTHER,
+            },
+            format='json',
+            HTTP_X_FORWARDED_FOR='192.168.10.5, 172.16.1.10',
+        )
+        self.assertEqual(ok_audit_create.status_code, status.HTTP_201_CREATED)
+        created_log = AuditLog.objects.get(id=ok_audit_create.data['data']['id'])
+        self.assertEqual(created_log.ip_address, '192.168.10.5')
+
+        list_filtered = self.client.get(
+            reverse('admin-audit-logs'),
+            {
+                'user_id': self.admin_user.id,
+                'action': AuditLog.Action.EXPORT,
+                'entity_type': 'batch',
+                'entity_id': 'new1',
+                'date_from': (now - timezone.timedelta(days=1)).isoformat(),
+                'date_to': (now + timezone.timedelta(days=1)).isoformat(),
+                'limit': 'bad',
+            },
+        )
+        self.assertEqual(list_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(list_filtered.data['data']), 1)
+
+        detail_missing = self.client.get(reverse('admin-audit-log-detail', kwargs={'log_id': 999999}))
+        self.assertEqual(detail_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        detail_existing = self.client.get(reverse('admin-audit-log-detail', kwargs={'log_id': new_log.id}))
+        self.assertEqual(detail_existing.status_code, status.HTTP_200_OK)
