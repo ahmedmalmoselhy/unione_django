@@ -71,6 +71,9 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: GitHub Actions coverage artifacts and fail-under gate enabled (coverage.xml + threshold).
 - Completed: comprehensive enrollment test pack added (service layer + student/professor flows + scoped admin org access).
 - Completed: baseline coverage improved and CI fail-under threshold raised to 70.
+- Completed: comprehensive admin analytics/import-export/admin webhook validation tests added.
+- Completed: comprehensive organization-admin CRUD/filter/scope tests expanded significantly.
+- Completed: app-code coverage baseline increased to 86% (tests/migrations omitted), with strong gains in low-coverage admin modules.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning

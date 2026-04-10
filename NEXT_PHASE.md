@@ -28,6 +28,9 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 - GitHub Actions workflow updated to run Django system checks and app-level tests.
 - Comprehensive enrollment tests added for services and key student/professor/admin branches.
 - CI coverage fail-under threshold increased to 70.
+- Comprehensive admin analytics/import-export/webhook validation tests added.
+- Organization-admin comprehensive CRUD/filter/scope coverage added.
+- App-code coverage baseline increased to 86% (tests/migrations omitted).
 
 ## Remaining Work
 
@@ -39,12 +42,12 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 
 ### Test and Quality Hardening
 
-- Add integration tests for import validation edge cases and malformed files.
+- Add integration tests for malformed CSV file uploads and large-file import behavior.
 - Add production smoke-test checklist for webhook scheduler + cleanup command.
-- Expand coverage for remaining low-coverage admin analytics and organization-admin branches.
+- Expand coverage for remaining lower modules (`enrollment/shared_views.py`, `enrollment/admin_views.py`, `academics/webhook_delivery.py`).
 
 ## Priority
 
 1. PostgreSQL migration and smoke validation.
 2. Scheduler service rollout validation.
-3. Import/export edge-case coverage expansion.
+3. Remaining lower-module coverage expansion.

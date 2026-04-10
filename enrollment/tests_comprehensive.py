@@ -16,6 +16,8 @@ from academics.models import (
     Notification,
     Section,
     SectionAnnouncement,
+    Webhook,
+    WebhookDelivery,
 )
 from accounts.models import Role, UserRole
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
@@ -529,3 +531,455 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
             format='json',
         )
         self.assertEqual(missing_term_required.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_faculty_and_department_detail_scope_paths(self):
+        self._auth(self.faculty_admin_user)
+
+        own_faculty = self.client.get(reverse('admin-faculty-detail', kwargs={'faculty_id': self.faculty.id}))
+        self.assertEqual(own_faculty.status_code, status.HTTP_200_OK)
+
+        foreign_faculty = self.client.get(reverse('admin-faculty-detail', kwargs={'faculty_id': self.other_faculty.id}))
+        self.assertEqual(foreign_faculty.status_code, status.HTTP_403_FORBIDDEN)
+
+        own_department = self.client.get(reverse('admin-department-detail', kwargs={'department_id': self.department.id}))
+        self.assertEqual(own_department.status_code, status.HTTP_200_OK)
+
+        foreign_department = self.client.get(reverse('admin-department-detail', kwargs={'department_id': self.other_department.id}))
+        self.assertEqual(foreign_department.status_code, status.HTTP_403_FORBIDDEN)
+
+        patched_department = self.client.patch(
+            reverse('admin-department-detail', kwargs={'department_id': self.department.id}),
+            {'name': 'Computer Science Updated', 'is_mandatory': True},
+            format='json',
+        )
+        self.assertEqual(patched_department.status_code, status.HTTP_200_OK)
+
+        temp_department = Department.objects.create(
+            faculty=self.faculty,
+            name='Temp Deletable Department',
+            code='TMPDEL',
+            scope=Department.Scope.DEPARTMENT,
+        )
+        delete_department = self.client.delete(
+            reverse('admin-department-detail', kwargs={'department_id': temp_department.id})
+        )
+        self.assertEqual(delete_department.status_code, status.HTTP_200_OK)
+
+        self._auth(self.department_admin_user)
+        own_department_dep_admin = self.client.get(reverse('admin-department-detail', kwargs={'department_id': self.department.id}))
+        self.assertEqual(own_department_dep_admin.status_code, status.HTTP_200_OK)
+
+        dep_admin_patch = self.client.patch(
+            reverse('admin-department-detail', kwargs={'department_id': self.department.id}),
+            {'required_credit_hours': 120},
+            format='json',
+        )
+        self.assertEqual(dep_admin_patch.status_code, status.HTTP_200_OK)
+
+        dep_admin_delete_denied = self.client.delete(
+            reverse('admin-department-detail', kwargs={'department_id': self.department.id})
+        )
+        self.assertEqual(dep_admin_delete_denied.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_super_admin_org_crud_and_filter_paths(self):
+        self._auth(self.admin_user)
+
+        faculties_filtered = self.client.get(reverse('admin-faculties'), {'search': 'Engineering'})
+        self.assertEqual(faculties_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(faculties_filtered.data['data']), 1)
+
+        duplicate_faculty_code = self.client.post(
+            reverse('admin-faculties'),
+            {'name': 'Engineering Duplicate', 'code': self.faculty.code, 'university_id': self.university.id},
+            format='json',
+        )
+        self.assertEqual(duplicate_faculty_code.status_code, status.HTTP_400_BAD_REQUEST)
+
+        patch_faculty = self.client.patch(
+            reverse('admin-faculty-detail', kwargs={'faculty_id': self.faculty.id}),
+            {'name': 'Engineering Prime'},
+            format='json',
+        )
+        self.assertEqual(patch_faculty.status_code, status.HTTP_200_OK)
+
+        terms_filtered = self.client.get(reverse('admin-academic-terms'), {'is_active': 'true'})
+        self.assertEqual(terms_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(terms_filtered.data['data']), 1)
+
+        term_create = self.client.post(
+            reverse('admin-academic-terms'),
+            {
+                'name': 'Summer 2027',
+                'start_date': '2027-06-20',
+                'end_date': '2027-08-30',
+                'registration_start': '2027-06-01',
+                'registration_end': '2027-06-15',
+                'is_active': False,
+            },
+            format='json',
+        )
+        self.assertEqual(term_create.status_code, status.HTTP_201_CREATED)
+        term_id = term_create.data['data']['id']
+
+        term_patch = self.client.patch(
+            reverse('admin-academic-term-detail', kwargs={'term_id': term_id}),
+            {'is_active': True},
+            format='json',
+        )
+        self.assertEqual(term_patch.status_code, status.HTTP_200_OK)
+
+        term_delete = self.client.delete(reverse('admin-academic-term-detail', kwargs={'term_id': term_id}))
+        self.assertEqual(term_delete.status_code, status.HTTP_200_OK)
+
+        term_delete_missing = self.client.delete(reverse('admin-academic-term-detail', kwargs={'term_id': term_id}))
+        self.assertEqual(term_delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        course_missing_required = self.client.post(
+            reverse('admin-courses'),
+            {'code': 'NEWX100'},
+            format='json',
+        )
+        self.assertEqual(course_missing_required.status_code, status.HTTP_400_BAD_REQUEST)
+
+        course_create = self.client.post(
+            reverse('admin-courses'),
+            {'code': 'NEWX100', 'name': 'New Course X', 'credit_hours': 3, 'is_active': False, 'level': 400},
+            format='json',
+        )
+        self.assertEqual(course_create.status_code, status.HTTP_201_CREATED)
+        new_course_id = course_create.data['data']['id']
+
+        courses_filtered = self.client.get(reverse('admin-courses'), {'is_active': 'false', 'level': 400, 'search': 'NEWX'})
+        self.assertEqual(courses_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(courses_filtered.data['data']), 1)
+
+        course_detail = self.client.get(reverse('admin-course-detail', kwargs={'course_id': new_course_id}))
+        self.assertEqual(course_detail.status_code, status.HTTP_200_OK)
+
+        course_patch = self.client.patch(
+            reverse('admin-course-detail', kwargs={'course_id': new_course_id}),
+            {'is_active': True, 'credit_hours': 4},
+            format='json',
+        )
+        self.assertEqual(course_patch.status_code, status.HTTP_200_OK)
+
+        section_missing_required = self.client.post(
+            reverse('admin-sections'),
+            {'course_id': self.course.id},
+            format='json',
+        )
+        self.assertEqual(section_missing_required.status_code, status.HTTP_400_BAD_REQUEST)
+
+        section_missing_course = self.client.post(
+            reverse('admin-sections'),
+            {'course_id': 99999, 'professor_id': self.professor.id, 'academic_term_id': self.term.id},
+            format='json',
+        )
+        self.assertEqual(section_missing_course.status_code, status.HTTP_404_NOT_FOUND)
+
+        section_missing_professor = self.client.post(
+            reverse('admin-sections'),
+            {'course_id': self.course.id, 'professor_id': 99999, 'academic_term_id': self.term.id},
+            format='json',
+        )
+        self.assertEqual(section_missing_professor.status_code, status.HTTP_404_NOT_FOUND)
+
+        section_missing_term = self.client.post(
+            reverse('admin-sections'),
+            {'course_id': self.course.id, 'professor_id': self.professor.id, 'academic_term_id': 99999},
+            format='json',
+        )
+        self.assertEqual(section_missing_term.status_code, status.HTTP_404_NOT_FOUND)
+
+        section_create = self.client.post(
+            reverse('admin-sections'),
+            {
+                'course_id': self.course.id,
+                'professor_id': self.professor.id,
+                'academic_term_id': self.term.id,
+                'semester': 2,
+                'capacity': 35,
+                'schedule': {'days': [2], 'start_time': '15:00', 'end_time': '16:30'},
+            },
+            format='json',
+        )
+        self.assertEqual(section_create.status_code, status.HTTP_201_CREATED)
+        new_section_id = section_create.data['data']['id']
+
+        sections_filtered = self.client.get(
+            reverse('admin-sections'),
+            {'course_id': self.course.id, 'academic_term_id': self.term.id, 'professor_id': self.professor.id},
+        )
+        self.assertEqual(sections_filtered.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(sections_filtered.data['data']), 1)
+
+        section_detail = self.client.get(reverse('admin-section-detail', kwargs={'section_id': new_section_id}))
+        self.assertEqual(section_detail.status_code, status.HTTP_200_OK)
+
+        section_patch = self.client.patch(
+            reverse('admin-section-detail', kwargs={'section_id': new_section_id}),
+            {'semester': 3, 'capacity': 40},
+            format='json',
+        )
+        self.assertEqual(section_patch.status_code, status.HTTP_200_OK)
+
+        section_delete = self.client.delete(reverse('admin-section-detail', kwargs={'section_id': new_section_id}))
+        self.assertEqual(section_delete.status_code, status.HTTP_200_OK)
+
+        section_delete_missing = self.client.delete(reverse('admin-section-detail', kwargs={'section_id': new_section_id}))
+        self.assertEqual(section_delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        course_delete = self.client.delete(reverse('admin-course-detail', kwargs={'course_id': new_course_id}))
+        self.assertEqual(course_delete.status_code, status.HTTP_200_OK)
+
+        course_delete_missing = self.client.delete(reverse('admin-course-detail', kwargs={'course_id': new_course_id}))
+        self.assertEqual(course_delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class AdminAnalyticsAndImportExportComprehensiveTests(_BaseEnrollmentSetup, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.other_faculty_admin_user = User.objects.create_user(
+            username='fac_other_comp',
+            email='fac_other_comp@example.com',
+            password='Pass1234!@#',
+        )
+        self.no_scope_faculty_admin_user = User.objects.create_user(
+            username='fac_noscope_comp',
+            email='fac_noscope_comp@example.com',
+            password='Pass1234!@#',
+        )
+        UserRole.objects.create(
+            user=self.other_faculty_admin_user,
+            role=self.faculty_admin_role,
+            scope='faculty',
+            scope_id=self.other_faculty.id,
+        )
+        UserRole.objects.create(
+            user=self.no_scope_faculty_admin_user,
+            role=self.faculty_admin_role,
+        )
+
+    def test_admin_user_and_webhook_validation_branches(self):
+        self._auth(self.admin_user)
+
+        missing_user_field = self.client.post(
+            reverse('admin-users'),
+            {'username': 'missing_email', 'password': 'Pass1234!@#'},
+            format='json',
+        )
+        self.assertEqual(missing_user_field.status_code, status.HTTP_400_BAD_REQUEST)
+
+        roles_not_list = self.client.post(
+            reverse('admin-users'),
+            {'username': 'bad_roles', 'email': 'bad_roles@example.com', 'password': 'Pass1234!@#', 'roles': 'student'},
+            format='json',
+        )
+        self.assertEqual(roles_not_list.status_code, status.HTTP_400_BAD_REQUEST)
+
+        created_user = self.client.post(
+            reverse('admin-users'),
+            {'username': 'ops_user', 'email': 'ops_user@example.com', 'password': 'Pass1234!@#', 'roles': ['student']},
+            format='json',
+        )
+        self.assertEqual(created_user.status_code, status.HTTP_201_CREATED)
+        created_user_id = created_user.data['data']['id']
+
+        patch_roles_not_list = self.client.patch(
+            reverse('admin-user-detail', kwargs={'user_id': created_user_id}),
+            {'roles': 'student'},
+            format='json',
+        )
+        self.assertEqual(patch_roles_not_list.status_code, status.HTTP_400_BAD_REQUEST)
+
+        cannot_delete_self = self.client.delete(reverse('admin-user-detail', kwargs={'user_id': self.admin_user.id}))
+        self.assertEqual(cannot_delete_self.status_code, status.HTTP_400_BAD_REQUEST)
+
+        webhook_missing_required = self.client.post(
+            reverse('admin-webhooks'),
+            {'name': 'No target'},
+            format='json',
+        )
+        self.assertEqual(webhook_missing_required.status_code, status.HTTP_400_BAD_REQUEST)
+
+        webhook_bad_events = self.client.post(
+            reverse('admin-webhooks'),
+            {'name': 'Bad events', 'target_url': 'https://example.com/hook', 'events': 'event.name'},
+            format='json',
+        )
+        self.assertEqual(webhook_bad_events.status_code, status.HTTP_400_BAD_REQUEST)
+
+        created_webhook = self.client.post(
+            reverse('admin-webhooks'),
+            {
+                'name': 'Ops Hook',
+                'target_url': 'https://example.com/hook',
+                'events': ['enrollment.created'],
+                'headers': {'x-token': 'abc'},
+            },
+            format='json',
+        )
+        self.assertEqual(created_webhook.status_code, status.HTTP_201_CREATED)
+        webhook_id = created_webhook.data['data']['id']
+
+        webhook = Webhook.objects.get(id=webhook_id)
+        WebhookDelivery.objects.create(
+            webhook=webhook,
+            event_name='enrollment.created',
+            payload={'id': 1},
+            status=WebhookDelivery.DeliveryStatus.PENDING,
+            attempt_count=0,
+        )
+
+        invalid_limit = self.client.get(
+            reverse('admin-webhook-deliveries', kwargs={'webhook_id': webhook_id}),
+            {'limit': 'abc'},
+        )
+        self.assertEqual(invalid_limit.status_code, status.HTTP_400_BAD_REQUEST)
+
+        no_fields_patch = self.client.patch(
+            reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(no_fields_patch.status_code, status.HTTP_400_BAD_REQUEST)
+
+        invalid_events_patch = self.client.patch(
+            reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}),
+            {'events': 'bad'},
+            format='json',
+        )
+        self.assertEqual(invalid_events_patch.status_code, status.HTTP_400_BAD_REQUEST)
+
+        valid_patch = self.client.patch(
+            reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}),
+            {'name': 'Ops Hook Updated', 'events': ['enrollment.created', 'enrollment.updated']},
+            format='json',
+        )
+        self.assertEqual(valid_patch.status_code, status.HTTP_200_OK)
+
+        deleted = self.client.delete(reverse('admin-webhook-detail', kwargs={'webhook_id': webhook_id}))
+        self.assertEqual(deleted.status_code, status.HTTP_200_OK)
+
+        missing_after_delete = self.client.get(reverse('admin-webhook-deliveries', kwargs={'webhook_id': webhook_id}))
+        self.assertEqual(missing_after_delete.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_import_export_and_analytics_scope_branches(self):
+        self._auth(self.no_scope_faculty_admin_user)
+
+        empty_enrollment_export = self.client.get(reverse('admin-export-enrollments'))
+        self.assertEqual(empty_enrollment_export.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(empty_enrollment_export.content.decode('utf-8').strip().splitlines()), 1)
+
+        empty_grades_export = self.client.get(reverse('admin-export-grades'))
+        self.assertEqual(empty_grades_export.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(empty_grades_export.content.decode('utf-8').strip().splitlines()), 1)
+
+        self._auth(self.admin_user)
+
+        missing_import_payload = self.client.post(reverse('admin-import-users'), {}, format='json')
+        self.assertEqual(missing_import_payload.status_code, status.HTTP_400_BAD_REQUEST)
+
+        import_users_response = self.client.post(
+            reverse('admin-import-users'),
+            {
+                'rows': [
+                    {'username': '', 'email': 'invalid@example.com'},
+                    {'username': 'bulk_user_1', 'email': 'bulk_user_1@example.com', 'roles': 'student|faculty_admin'},
+                    {'username': 'bulk_user_1', 'email': 'bulk_user_1@example.com'},
+                ]
+            },
+            format='json',
+        )
+        self.assertEqual(import_users_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(import_users_response.data['data']['created'], 1)
+        self.assertEqual(import_users_response.data['data']['skipped'], 2)
+
+        import_courses_response = self.client.post(
+            reverse('admin-import-courses'),
+            {
+                'rows': [
+                    {'code': 'BULK101', 'name': 'Bulk Course Bad', 'credit_hours': 'x'},
+                    {'code': 'BULK101', 'name': 'Bulk Course Good', 'credit_hours': '3', 'lecture_hours': '2', 'lab_hours': '1'},
+                    {'code': 'BULK101', 'name': 'Bulk Course Dup', 'credit_hours': '3'},
+                ]
+            },
+            format='json',
+        )
+        self.assertEqual(import_courses_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(import_courses_response.data['data']['created'], 1)
+        self.assertEqual(import_courses_response.data['data']['skipped'], 2)
+
+        self._auth(self.other_faculty_admin_user)
+
+        enrollment_analytics_scoped = self.client.get(reverse('admin-analytics-enrollment'))
+        self.assertEqual(enrollment_analytics_scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(enrollment_analytics_scoped.data['data']['summary']['total'], 0)
+
+        grades_analytics_scoped = self.client.get(reverse('admin-analytics-grades'))
+        self.assertEqual(grades_analytics_scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(grades_analytics_scoped.data['data']['summary']['total'], 0)
+
+        attendance_analytics_scoped = self.client.get(reverse('admin-analytics-attendance'))
+        self.assertEqual(attendance_analytics_scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(attendance_analytics_scoped.data['data']['summary']['total_records'], 0)
+
+        students_analytics_scoped = self.client.get(reverse('admin-analytics-students'))
+        self.assertEqual(students_analytics_scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(students_analytics_scoped.data['data']['summary']['total_students'], 0)
+
+        professors_analytics_scoped = self.client.get(reverse('admin-analytics-professors'))
+        self.assertEqual(professors_analytics_scoped.status_code, status.HTTP_200_OK)
+        self.assertEqual(professors_analytics_scoped.data['data']['summary']['total_professors'], 0)
+
+        webhook_analytics_empty = self.client.get(reverse('admin-analytics-webhooks'))
+        self.assertEqual(webhook_analytics_empty.status_code, status.HTTP_200_OK)
+        self.assertEqual(webhook_analytics_empty.data['data']['summary']['total_deliveries'], 0)
+
+        self._auth(self.admin_user)
+        session = AttendanceSession.objects.create(
+            section=self.section,
+            created_by=self.professor,
+            session_date='2026-10-11',
+            title='Coverage Session',
+        )
+        AttendanceRecord.objects.create(
+            session=session,
+            enrollment=self.active_enrollment,
+            status=AttendanceRecord.Status.PRESENT,
+        )
+
+        attendance_analytics = self.client.get(reverse('admin-analytics-attendance'))
+        self.assertEqual(attendance_analytics.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(attendance_analytics.data['data']['summary']['total_records'], 1)
+
+        webhook = Webhook.objects.create(
+            name='Metrics Hook',
+            target_url='https://example.com/metrics',
+            events=['grade.updated'],
+            created_by=self.admin_user,
+        )
+        WebhookDelivery.objects.create(
+            webhook=webhook,
+            event_name='grade.updated',
+            payload={'grade_id': 1},
+            status=WebhookDelivery.DeliveryStatus.SUCCESS,
+            attempt_count=1,
+        )
+        WebhookDelivery.objects.create(
+            webhook=webhook,
+            event_name='grade.updated',
+            payload={'grade_id': 2},
+            status=WebhookDelivery.DeliveryStatus.FAILED,
+            attempt_count=3,
+            error_message='timeout',
+        )
+
+        webhook_analytics = self.client.get(reverse('admin-analytics-webhooks'), {'webhook_id': webhook.id})
+        self.assertEqual(webhook_analytics.status_code, status.HTTP_200_OK)
+        self.assertEqual(webhook_analytics.data['data']['summary']['total_deliveries'], 2)
+        self.assertEqual(len(webhook_analytics.data['data']['recent_failures']), 1)
+
+        grades_analytics = self.client.get(reverse('admin-analytics-grades'))
+        self.assertEqual(grades_analytics.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(grades_analytics.data['data']['summary']['total'], 1)
