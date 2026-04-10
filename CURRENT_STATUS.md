@@ -69,6 +69,8 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: admin management/analytics/audit API test coverage added and passing.
 - Completed: GitHub Actions Django workflow updated to run system checks and full app test suite.
 - Completed: GitHub Actions coverage artifacts and fail-under gate enabled (coverage.xml + threshold).
+- Completed: comprehensive enrollment test pack added (service layer + student/professor flows + scoped admin org access).
+- Completed: baseline coverage improved and CI fail-under threshold raised to 70.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning

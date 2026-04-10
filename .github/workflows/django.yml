@@ -19,7 +19,7 @@ jobs:
     env:
       DB_ENGINE: django.db.backends.sqlite3
       DB_NAME: db.sqlite3
-      COVERAGE_FAIL_UNDER: "60"
+      COVERAGE_FAIL_UNDER: "70"
 
     steps:
     - uses: actions/checkout@v4
@@ -38,8 +38,8 @@ jobs:
     - name: Run Django Tests with Coverage
       run: |
         coverage run manage.py test accounts organization enrollment academics -v 2
-        coverage report --omit="*/migrations/*,*/tests.py,manage.py" --fail-under=${{ env.COVERAGE_FAIL_UNDER }}
-        coverage xml --omit="*/migrations/*,*/tests.py,manage.py" -o coverage.xml
+        coverage report --omit="*/migrations/*,*/tests*.py,manage.py" --fail-under=${{ env.COVERAGE_FAIL_UNDER }}
+        coverage xml --omit="*/migrations/*,*/tests*.py,manage.py" -o coverage.xml
     - name: Upload Coverage Artifacts
       if: always()
       uses: actions/upload-artifact@v4

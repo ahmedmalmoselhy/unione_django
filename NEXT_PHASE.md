@@ -26,6 +26,8 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 - Automatic model-level audit trail via signals for key entities.
 - Admin management/analytics/audit API tests added.
 - GitHub Actions workflow updated to run Django system checks and app-level tests.
+- Comprehensive enrollment tests added for services and key student/professor/admin branches.
+- CI coverage fail-under threshold increased to 70.
 
 ## Remaining Work
 
@@ -39,6 +41,7 @@ Phase 7 admin scope is now implemented in code, including organization CRUD, ana
 
 - Add integration tests for import validation edge cases and malformed files.
 - Add production smoke-test checklist for webhook scheduler + cleanup command.
+- Expand coverage for remaining low-coverage admin analytics and organization-admin branches.
 
 ## Priority
 
