@@ -100,6 +100,12 @@ Base path: /api
 - POST /api/admin/sections/{id}/exam-schedule
 - PATCH /api/admin/sections/{id}/exam-schedule
 - POST /api/admin/sections/{id}/exam-schedule/publish
+- GET /api/admin/sections/{id}/group-projects
+- POST /api/admin/sections/{id}/group-projects
+- PATCH /api/admin/sections/{id}/group-projects/{project_id}
+- DELETE /api/admin/sections/{id}/group-projects/{project_id}
+- POST /api/admin/sections/{id}/group-projects/{project_id}/members
+- DELETE /api/admin/sections/{id}/group-projects/{project_id}/members/{member_id}
 - GET /api/admin/academic-terms
 - POST /api/admin/academic-terms
 - GET /api/admin/academic-terms/{id}

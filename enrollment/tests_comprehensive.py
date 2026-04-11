@@ -18,6 +18,7 @@ from academics.models import (
     EnrollmentWaitlist,
     GlobalAnnouncementRead,
     Grade,
+    GroupProject,
     Notification,
     Section,
     SectionAnnouncement,
@@ -831,6 +832,127 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
         self.assertEqual(exam_patch.status_code, status.HTTP_200_OK)
         self.assertEqual(ExamSchedule.objects.get(id=exam_schedule_id).location, 'Hall B')
         self.assertFalse(ExamSchedule.objects.get(id=exam_schedule_id).is_published)
+
+        group_list_empty = self.client.get(reverse('admin-section-group-projects', kwargs={'section_id': new_section_id}))
+        self.assertEqual(group_list_empty.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(group_list_empty.data['data']), 0)
+
+        group_create_missing = self.client.post(
+            reverse('admin-section-group-projects', kwargs={'section_id': new_section_id}),
+            {'description': 'Missing title'},
+            format='json',
+        )
+        self.assertEqual(group_create_missing.status_code, status.HTTP_400_BAD_REQUEST)
+
+        group_create = self.client.post(
+            reverse('admin-section-group-projects', kwargs={'section_id': new_section_id}),
+            {
+                'title': 'Capstone Team Project',
+                'description': 'Build an end-to-end prototype',
+                'max_members': 2,
+            },
+            format='json',
+        )
+        self.assertEqual(group_create.status_code, status.HTTP_201_CREATED)
+        group_project_id = group_create.data['data']['id']
+
+        CourseEnrollment.objects.create(
+            student=self.student_profile,
+            section_id=new_section_id,
+            academic_term=self.term,
+            status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+        )
+
+        outsider_user = User.objects.create_user(
+            username='group_outsider',
+            email='group_outsider@example.com',
+            password='Pass1234!@#',
+        )
+        UserRole.objects.create(user=outsider_user, role=self.student_role)
+        outsider_student = StudentProfile.objects.create(
+            user=outsider_user,
+            student_number='S-COMP-OUT',
+            faculty=self.faculty,
+            department=self.department,
+            academic_year=2,
+            semester=1,
+            enrolled_at='2024-09-01',
+        )
+
+        group_member_add_missing = self.client.post(
+            reverse(
+                'admin-section-group-project-members',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id},
+            ),
+            {},
+            format='json',
+        )
+        self.assertEqual(group_member_add_missing.status_code, status.HTTP_400_BAD_REQUEST)
+
+        group_member_add_not_enrolled = self.client.post(
+            reverse(
+                'admin-section-group-project-members',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id},
+            ),
+            {'student_id': outsider_student.id},
+            format='json',
+        )
+        self.assertEqual(group_member_add_not_enrolled.status_code, status.HTTP_400_BAD_REQUEST)
+
+        group_member_add = self.client.post(
+            reverse(
+                'admin-section-group-project-members',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id},
+            ),
+            {'student_id': self.student_profile.id},
+            format='json',
+        )
+        self.assertEqual(group_member_add.status_code, status.HTTP_201_CREATED)
+        group_member_id = group_member_add.data['data']['id']
+
+        group_member_duplicate = self.client.post(
+            reverse(
+                'admin-section-group-project-members',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id},
+            ),
+            {'student_id': self.student_profile.id},
+            format='json',
+        )
+        self.assertEqual(group_member_duplicate.status_code, status.HTTP_200_OK)
+
+        group_list = self.client.get(reverse('admin-section-group-projects', kwargs={'section_id': new_section_id}))
+        self.assertEqual(group_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(group_list.data['data']), 1)
+        self.assertEqual(len(group_list.data['data'][0]['members']), 1)
+
+        group_patch = self.client.patch(
+            reverse('admin-section-group-project-detail', kwargs={'section_id': new_section_id, 'project_id': group_project_id}),
+            {'title': 'Updated Capstone Project', 'max_members': 3, 'is_active': False},
+            format='json',
+        )
+        self.assertEqual(group_patch.status_code, status.HTTP_200_OK)
+
+        group_member_delete_missing = self.client.delete(
+            reverse(
+                'admin-section-group-project-member-detail',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id, 'member_id': 99999},
+            )
+        )
+        self.assertEqual(group_member_delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        group_member_delete = self.client.delete(
+            reverse(
+                'admin-section-group-project-member-detail',
+                kwargs={'section_id': new_section_id, 'project_id': group_project_id, 'member_id': group_member_id},
+            )
+        )
+        self.assertEqual(group_member_delete.status_code, status.HTTP_200_OK)
+
+        group_delete = self.client.delete(
+            reverse('admin-section-group-project-detail', kwargs={'section_id': new_section_id, 'project_id': group_project_id})
+        )
+        self.assertEqual(group_delete.status_code, status.HTTP_200_OK)
+        self.assertFalse(GroupProject.objects.filter(id=group_project_id).exists())
 
         section_patch = self.client.patch(
             reverse('admin-section-detail', kwargs={'section_id': new_section_id}),

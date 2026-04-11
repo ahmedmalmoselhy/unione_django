@@ -90,6 +90,46 @@ class ExamSchedule(models.Model):
 		return f'section:{self.section_id} exam:{self.exam_date} published:{self.is_published}'
 
 
+class GroupProject(models.Model):
+	section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='group_projects')
+	title = models.CharField(max_length=255)
+	description = models.TextField(null=True, blank=True)
+	due_at = models.DateTimeField(null=True, blank=True)
+	max_members = models.PositiveIntegerField(default=5)
+	is_active = models.BooleanField(default=True)
+	created_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		related_name='group_projects_created',
+		null=True,
+		blank=True,
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'section:{self.section_id} group_project:{self.title}'
+
+
+class GroupProjectMember(models.Model):
+	group_project = models.ForeignKey(GroupProject, on_delete=models.CASCADE, related_name='members')
+	student = models.ForeignKey('enrollment.StudentProfile', on_delete=models.CASCADE, related_name='group_project_memberships')
+	joined_at = models.DateTimeField(default=timezone.now)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(
+				fields=['group_project', 'student'],
+				name='uniq_group_project_member',
+			)
+		]
+
+	def __str__(self):
+		return f'group_project:{self.group_project_id} student:{self.student_id}'
+
+
 class Grade(models.Model):
 	class Status(models.TextChoices):
 		COMPLETE = 'complete', 'Complete'

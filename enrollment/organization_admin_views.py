@@ -1,12 +1,21 @@
 from django.db import transaction
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from academics.models import AcademicTerm, Course, ExamSchedule, Section, SectionTeachingAssistant
+from academics.models import (
+    AcademicTerm,
+    Course,
+    ExamSchedule,
+    GroupProject,
+    GroupProjectMember,
+    Section,
+    SectionTeachingAssistant,
+)
 from accounts.permissions import HasAnyRole
-from enrollment.models import ProfessorProfile
+from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
 
 
@@ -973,3 +982,279 @@ class AdminSectionExamSchedulePublishView(APIView):
                 },
             }
         )
+
+
+class AdminSectionGroupProjectsView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def get(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        projects = (
+            GroupProject.objects
+            .filter(section_id=section_id)
+            .prefetch_related('members__student__user')
+            .order_by('id')
+        )
+
+        data = [
+            {
+                'id': project.id,
+                'section_id': project.section_id,
+                'title': project.title,
+                'description': project.description,
+                'due_at': project.due_at,
+                'max_members': project.max_members,
+                'is_active': project.is_active,
+                'created_by_user_id': project.created_by_id,
+                'created_at': project.created_at,
+                'updated_at': project.updated_at,
+                'members': [
+                    {
+                        'id': member.id,
+                        'student_id': member.student_id,
+                        'student_number': member.student.student_number,
+                        'student_name': member.student.user.get_full_name() or member.student.user.username,
+                        'joined_at': member.joined_at,
+                    }
+                    for member in project.members.all().order_by('id')
+                ],
+            }
+            for project in projects
+        ]
+
+        return Response({'status': 'success', 'data': data})
+
+    def post(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        title = payload.get('title')
+        if not title:
+            return Response({'status': 'error', 'message': 'title is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        max_members_raw = payload.get('max_members', 5)
+        try:
+            max_members = int(max_members_raw)
+            if max_members <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            return Response({'status': 'error', 'message': 'max_members must be a positive integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        due_at = None
+        if payload.get('due_at') is not None:
+            due_at = parse_datetime(str(payload.get('due_at')))
+            if due_at is None:
+                return Response(
+                    {'status': 'error', 'message': 'due_at must be a valid ISO-8601 datetime'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        is_active = True
+        if 'is_active' in payload:
+            if isinstance(payload['is_active'], bool):
+                is_active = payload['is_active']
+            elif str(payload['is_active']).lower() in ['true', '1']:
+                is_active = True
+            elif str(payload['is_active']).lower() in ['false', '0']:
+                is_active = False
+            else:
+                return Response({'status': 'error', 'message': 'is_active must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+
+        project = GroupProject.objects.create(
+            section=section,
+            title=title,
+            description=payload.get('description'),
+            due_at=due_at,
+            max_members=max_members,
+            is_active=is_active,
+            created_by=request.user,
+        )
+
+        return Response(
+            {
+                'status': 'success',
+                'message': 'Group project created successfully',
+                'data': {
+                    'id': project.id,
+                    'section_id': project.section_id,
+                    'title': project.title,
+                    'max_members': project.max_members,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminSectionGroupProjectDetailView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def patch(self, request, section_id, project_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        project = GroupProject.objects.filter(id=project_id, section_id=section_id).first()
+        if not project:
+            return Response({'status': 'error', 'message': 'Group project not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        updated = []
+
+        if 'title' in payload:
+            if not payload['title']:
+                return Response({'status': 'error', 'message': 'title cannot be empty'}, status=status.HTTP_400_BAD_REQUEST)
+            project.title = payload['title']
+            updated.append('title')
+
+        if 'description' in payload:
+            project.description = payload['description']
+            updated.append('description')
+
+        if 'due_at' in payload:
+            if payload['due_at'] is None:
+                project.due_at = None
+            else:
+                parsed_due_at = parse_datetime(str(payload['due_at']))
+                if parsed_due_at is None:
+                    return Response(
+                        {'status': 'error', 'message': 'due_at must be a valid ISO-8601 datetime'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                project.due_at = parsed_due_at
+            updated.append('due_at')
+
+        if 'max_members' in payload:
+            try:
+                max_members = int(payload['max_members'])
+                if max_members <= 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response({'status': 'error', 'message': 'max_members must be a positive integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+            current_members = GroupProjectMember.objects.filter(group_project_id=project.id).count()
+            if current_members > max_members:
+                return Response(
+                    {'status': 'error', 'message': 'max_members cannot be less than current member count'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            project.max_members = max_members
+            updated.append('max_members')
+
+        if 'is_active' in payload:
+            if isinstance(payload['is_active'], bool):
+                project.is_active = payload['is_active']
+            elif str(payload['is_active']).lower() in ['true', '1']:
+                project.is_active = True
+            elif str(payload['is_active']).lower() in ['false', '0']:
+                project.is_active = False
+            else:
+                return Response({'status': 'error', 'message': 'is_active must be a boolean'}, status=status.HTTP_400_BAD_REQUEST)
+            updated.append('is_active')
+
+        if updated:
+            project.save(update_fields=list(dict.fromkeys(updated + ['updated_at'])))
+
+        return Response({'status': 'success', 'message': 'Group project updated successfully'})
+
+    def delete(self, request, section_id, project_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        project = GroupProject.objects.filter(id=project_id, section_id=section_id).first()
+        if not project:
+            return Response({'status': 'error', 'message': 'Group project not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        project.delete()
+        return Response({'status': 'success', 'message': 'Group project deleted successfully'})
+
+
+class AdminSectionGroupProjectMembersView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def post(self, request, section_id, project_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        project = GroupProject.objects.filter(id=project_id, section_id=section_id).first()
+        if not project:
+            return Response({'status': 'error', 'message': 'Group project not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        student_id = payload.get('student_id')
+        if not student_id:
+            return Response({'status': 'error', 'message': 'student_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        student = StudentProfile.objects.filter(id=student_id).select_related('user').first()
+        if not student:
+            return Response({'status': 'error', 'message': 'Student not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not CourseEnrollment.objects.filter(
+            student=student,
+            section_id=section_id,
+            status__in=[
+                CourseEnrollment.EnrollmentStatus.ACTIVE,
+                CourseEnrollment.EnrollmentStatus.COMPLETED,
+            ],
+        ).exists():
+            return Response(
+                {'status': 'error', 'message': 'Student must be enrolled in this section'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        member, created = GroupProjectMember.objects.get_or_create(
+            group_project=project,
+            student=student,
+        )
+
+        if not created:
+            return Response(
+                {
+                    'status': 'success',
+                    'message': 'Student already assigned to this group project',
+                    'data': {'id': member.id, 'group_project_id': project.id, 'student_id': student.id},
+                }
+            )
+
+        if GroupProjectMember.objects.filter(group_project=project).count() > project.max_members:
+            member.delete()
+            return Response(
+                {'status': 'error', 'message': 'Group project is at maximum capacity'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                'status': 'success',
+                'message': 'Group project member added successfully',
+                'data': {'id': member.id, 'group_project_id': project.id, 'student_id': student.id},
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class AdminSectionGroupProjectMemberDetailView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def delete(self, request, section_id, project_id, member_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        project = GroupProject.objects.filter(id=project_id, section_id=section_id).first()
+        if not project:
+            return Response({'status': 'error', 'message': 'Group project not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        member = GroupProjectMember.objects.filter(id=member_id, group_project_id=project.id).first()
+        if not member:
+            return Response({'status': 'error', 'message': 'Group project member not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        member.delete()
+        return Response({'status': 'success', 'message': 'Group project member removed successfully'})
