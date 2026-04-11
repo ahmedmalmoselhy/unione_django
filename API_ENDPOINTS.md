@@ -93,6 +93,9 @@ Base path: /api
 - GET /api/admin/sections/{id}
 - PATCH /api/admin/sections/{id}
 - DELETE /api/admin/sections/{id}
+- GET /api/admin/sections/{id}/teaching-assistants
+- POST /api/admin/sections/{id}/teaching-assistants
+- DELETE /api/admin/sections/{id}/teaching-assistants/{ta_id}
 - GET /api/admin/academic-terms
 - POST /api/admin/academic-terms
 - GET /api/admin/academic-terms/{id}

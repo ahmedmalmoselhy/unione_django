@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from academics.models import AcademicTerm, Course, Section
+from academics.models import AcademicTerm, Course, Section, SectionTeachingAssistant
 from accounts.permissions import HasAnyRole
 from enrollment.models import ProfessorProfile
 from organization.models import Department, Faculty, University
@@ -757,3 +757,95 @@ class AdminSectionDetailView(APIView):
 
         section.delete()
         return Response({'status': 'success', 'message': 'Section deleted successfully'})
+
+
+class AdminSectionTeachingAssistantsView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def get(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        assignments = (
+            SectionTeachingAssistant.objects
+            .filter(section_id=section_id)
+            .select_related('professor__user')
+            .order_by('id')
+        )
+        data = [
+            {
+                'id': assignment.id,
+                'section_id': assignment.section_id,
+                'professor': {
+                    'id': assignment.professor_id,
+                    'staff_number': assignment.professor.staff_number,
+                    'name': assignment.professor.user.get_full_name() or assignment.professor.user.username,
+                },
+                'assigned_by_user_id': assignment.assigned_by_id,
+                'created_at': assignment.created_at,
+                'updated_at': assignment.updated_at,
+            }
+            for assignment in assignments
+        ]
+        return Response({'status': 'success', 'data': data})
+
+    def post(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        professor_id = payload.get('professor_id')
+        if not professor_id:
+            return Response(
+                {'status': 'error', 'message': 'professor_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        professor = ProfessorProfile.objects.filter(id=professor_id).select_related('user').first()
+        if not professor:
+            return Response(
+                {'status': 'error', 'message': 'Professor not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        assignment, created = SectionTeachingAssistant.objects.get_or_create(
+            section=section,
+            professor=professor,
+            defaults={'assigned_by': request.user},
+        )
+
+        message = 'Teaching assistant assigned successfully' if created else 'Teaching assistant already assigned'
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(
+            {
+                'status': 'success',
+                'message': message,
+                'data': {
+                    'id': assignment.id,
+                    'section_id': assignment.section_id,
+                    'professor_id': assignment.professor_id,
+                },
+            },
+            status=response_status,
+        )
+
+
+class AdminSectionTeachingAssistantDetailView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def delete(self, request, section_id, ta_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        assignment = SectionTeachingAssistant.objects.filter(id=ta_id, section_id=section_id).first()
+        if not assignment:
+            return Response(
+                {'status': 'error', 'message': 'Teaching assistant assignment not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        assignment.delete()
+        return Response({'status': 'success', 'message': 'Teaching assistant removed successfully'})

@@ -50,6 +50,31 @@ class Section(models.Model):
 		return f'{self.course.code}-T{self.academic_term_id}-S{self.id}'
 
 
+class SectionTeachingAssistant(models.Model):
+	section = models.ForeignKey(Section, on_delete=models.CASCADE, related_name='teaching_assistant_assignments')
+	professor = models.ForeignKey('enrollment.ProfessorProfile', on_delete=models.CASCADE, related_name='teaching_assistant_assignments')
+	assigned_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		related_name='teaching_assistant_assignments_created',
+		null=True,
+		blank=True,
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		constraints = [
+			models.UniqueConstraint(
+				fields=['section', 'professor'],
+				name='uniq_section_teaching_assistant',
+			)
+		]
+
+	def __str__(self):
+		return f'section:{self.section_id} ta_professor:{self.professor_id}'
+
+
 class Grade(models.Model):
 	class Status(models.TextChoices):
 		COMPLETE = 'complete', 'Complete'

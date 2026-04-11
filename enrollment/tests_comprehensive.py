@@ -20,6 +20,7 @@ from academics.models import (
     Notification,
     Section,
     SectionAnnouncement,
+    SectionTeachingAssistant,
     Webhook,
     WebhookDelivery,
 )
@@ -723,6 +724,59 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
 
         section_detail = self.client.get(reverse('admin-section-detail', kwargs={'section_id': new_section_id}))
         self.assertEqual(section_detail.status_code, status.HTTP_200_OK)
+
+        ta_user = User.objects.create_user(
+            username='ta_prof_comp',
+            email='ta_prof_comp@example.com',
+            password='Pass1234!@#',
+        )
+        UserRole.objects.create(user=ta_user, role=self.prof_role)
+        ta_professor = ProfessorProfile.objects.create(
+            user=ta_user,
+            staff_number='P-COMP-TA',
+            department=self.department,
+            hired_at='2021-01-01',
+        )
+
+        ta_assign_missing = self.client.post(
+            reverse('admin-section-teaching-assistants', kwargs={'section_id': new_section_id}),
+            {},
+            format='json',
+        )
+        self.assertEqual(ta_assign_missing.status_code, status.HTTP_400_BAD_REQUEST)
+
+        ta_assign = self.client.post(
+            reverse('admin-section-teaching-assistants', kwargs={'section_id': new_section_id}),
+            {'professor_id': ta_professor.id},
+            format='json',
+        )
+        self.assertEqual(ta_assign.status_code, status.HTTP_201_CREATED)
+        ta_assignment_id = ta_assign.data['data']['id']
+
+        ta_assign_duplicate = self.client.post(
+            reverse('admin-section-teaching-assistants', kwargs={'section_id': new_section_id}),
+            {'professor_id': ta_professor.id},
+            format='json',
+        )
+        self.assertEqual(ta_assign_duplicate.status_code, status.HTTP_200_OK)
+
+        ta_list = self.client.get(reverse('admin-section-teaching-assistants', kwargs={'section_id': new_section_id}))
+        self.assertEqual(ta_list.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(ta_list.data['data']), 1)
+        self.assertTrue(
+            SectionTeachingAssistant.objects.filter(id=ta_assignment_id, section_id=new_section_id).exists()
+        )
+
+        ta_delete_missing = self.client.delete(
+            reverse('admin-section-teaching-assistant-detail', kwargs={'section_id': new_section_id, 'ta_id': 99999})
+        )
+        self.assertEqual(ta_delete_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        ta_delete = self.client.delete(
+            reverse('admin-section-teaching-assistant-detail', kwargs={'section_id': new_section_id, 'ta_id': ta_assignment_id})
+        )
+        self.assertEqual(ta_delete.status_code, status.HTTP_200_OK)
+        self.assertFalse(SectionTeachingAssistant.objects.filter(id=ta_assignment_id).exists())
 
         section_patch = self.client.patch(
             reverse('admin-section-detail', kwargs={'section_id': new_section_id}),

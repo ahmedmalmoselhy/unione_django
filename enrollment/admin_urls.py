@@ -31,6 +31,8 @@ from .organization_admin_views import (
     AdminDepartmentsView,
     AdminFacultiesView,
     AdminFacultyDetailView,
+    AdminSectionTeachingAssistantDetailView,
+    AdminSectionTeachingAssistantsView,
     AdminSectionDetailView,
     AdminSectionsView,
 )
@@ -51,6 +53,16 @@ urlpatterns = [
     path('courses/<int:course_id>', AdminCourseDetailView.as_view(), name='admin-course-detail'),
     path('sections', AdminSectionsView.as_view(), name='admin-sections'),
     path('sections/<int:section_id>', AdminSectionDetailView.as_view(), name='admin-section-detail'),
+    path(
+        'sections/<int:section_id>/teaching-assistants',
+        AdminSectionTeachingAssistantsView.as_view(),
+        name='admin-section-teaching-assistants',
+    ),
+    path(
+        'sections/<int:section_id>/teaching-assistants/<int:ta_id>',
+        AdminSectionTeachingAssistantDetailView.as_view(),
+        name='admin-section-teaching-assistant-detail',
+    ),
     path('analytics/enrollment', EnrollmentAnalyticsView.as_view(), name='admin-analytics-enrollment'),
     path('analytics/grades', GradesAnalyticsView.as_view(), name='admin-analytics-grades'),
     path('analytics/attendance', AttendanceAnalyticsView.as_view(), name='admin-analytics-attendance'),
