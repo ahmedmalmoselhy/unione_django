@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from academics.models import AcademicTerm, Course, Section, SectionTeachingAssistant
+from academics.models import AcademicTerm, Course, ExamSchedule, Section, SectionTeachingAssistant
 from accounts.permissions import HasAnyRole
 from enrollment.models import ProfessorProfile
 from organization.models import Department, Faculty, University
@@ -849,3 +849,127 @@ class AdminSectionTeachingAssistantDetailView(APIView):
 
         assignment.delete()
         return Response({'status': 'success', 'message': 'Teaching assistant removed successfully'})
+
+
+class AdminSectionExamScheduleView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def get(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        schedule = ExamSchedule.objects.filter(section_id=section_id).first()
+        if not schedule:
+            return Response({'status': 'error', 'message': 'Exam schedule not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {
+                'status': 'success',
+                'data': {
+                    'id': schedule.id,
+                    'section_id': schedule.section_id,
+                    'exam_date': schedule.exam_date,
+                    'start_time': schedule.start_time,
+                    'end_time': schedule.end_time,
+                    'location': schedule.location,
+                    'is_published': schedule.is_published,
+                    'published_at': schedule.published_at,
+                    'created_at': schedule.created_at,
+                    'updated_at': schedule.updated_at,
+                },
+            }
+        )
+
+    def post(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if ExamSchedule.objects.filter(section_id=section_id).exists():
+            return Response(
+                {'status': 'error', 'message': 'Exam schedule already exists for this section'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        required = ['exam_date', 'start_time', 'end_time']
+        for field in required:
+            if not payload.get(field):
+                return Response(
+                    {'status': 'error', 'message': f'{field} is required'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        schedule = ExamSchedule.objects.create(
+            section=section,
+            exam_date=payload['exam_date'],
+            start_time=payload['start_time'],
+            end_time=payload['end_time'],
+            location=payload.get('location'),
+        )
+
+        return Response(
+            {
+                'status': 'success',
+                'message': 'Exam schedule created successfully',
+                'data': {'id': schedule.id, 'section_id': schedule.section_id, 'is_published': schedule.is_published},
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def patch(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        schedule = ExamSchedule.objects.filter(section_id=section_id).first()
+        if not schedule:
+            return Response({'status': 'error', 'message': 'Exam schedule not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = request.data if isinstance(request.data, dict) else {}
+        updatable = ['exam_date', 'start_time', 'end_time', 'location']
+        updated = []
+        for field in updatable:
+            if field in payload:
+                setattr(schedule, field, payload[field])
+                updated.append(field)
+
+        if updated:
+            if schedule.is_published:
+                schedule.is_published = False
+                schedule.published_at = None
+                updated.extend(['is_published', 'published_at'])
+            schedule.save(update_fields=list(dict.fromkeys(updated + ['updated_at'])))
+
+        return Response({'status': 'success', 'message': 'Exam schedule updated successfully'})
+
+
+class AdminSectionExamSchedulePublishView(APIView):
+    permission_classes = [AdminOnlyPermission]
+
+    def post(self, request, section_id):
+        section = Section.objects.filter(id=section_id).first()
+        if not section:
+            return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        schedule = ExamSchedule.objects.filter(section_id=section_id).first()
+        if not schedule:
+            return Response({'status': 'error', 'message': 'Exam schedule not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        schedule.is_published = True
+        schedule.published_at = timezone.now()
+        schedule.save(update_fields=['is_published', 'published_at', 'updated_at'])
+
+        return Response(
+            {
+                'status': 'success',
+                'message': 'Exam schedule published successfully',
+                'data': {
+                    'id': schedule.id,
+                    'section_id': schedule.section_id,
+                    'is_published': schedule.is_published,
+                    'published_at': schedule.published_at,
+                },
+            }
+        )

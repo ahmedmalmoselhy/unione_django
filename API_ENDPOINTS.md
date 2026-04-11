@@ -96,6 +96,10 @@ Base path: /api
 - GET /api/admin/sections/{id}/teaching-assistants
 - POST /api/admin/sections/{id}/teaching-assistants
 - DELETE /api/admin/sections/{id}/teaching-assistants/{ta_id}
+- GET /api/admin/sections/{id}/exam-schedule
+- POST /api/admin/sections/{id}/exam-schedule
+- PATCH /api/admin/sections/{id}/exam-schedule
+- POST /api/admin/sections/{id}/exam-schedule/publish
 - GET /api/admin/academic-terms
 - POST /api/admin/academic-terms
 - GET /api/admin/academic-terms/{id}

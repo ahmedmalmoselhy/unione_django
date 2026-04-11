@@ -14,6 +14,7 @@ from academics.models import (
     AttendanceSession,
     Course,
     CourseRating,
+    ExamSchedule,
     EnrollmentWaitlist,
     GlobalAnnouncementRead,
     Grade,
@@ -777,6 +778,59 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
         )
         self.assertEqual(ta_delete.status_code, status.HTTP_200_OK)
         self.assertFalse(SectionTeachingAssistant.objects.filter(id=ta_assignment_id).exists())
+
+        exam_get_missing = self.client.get(
+            reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id})
+        )
+        self.assertEqual(exam_get_missing.status_code, status.HTTP_404_NOT_FOUND)
+
+        exam_create_missing_fields = self.client.post(
+            reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}),
+            {'exam_date': '2027-01-15'},
+            format='json',
+        )
+        self.assertEqual(exam_create_missing_fields.status_code, status.HTTP_400_BAD_REQUEST)
+
+        exam_create = self.client.post(
+            reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}),
+            {
+                'exam_date': '2027-01-15',
+                'start_time': '09:00:00',
+                'end_time': '11:00:00',
+                'location': 'Main Hall',
+            },
+            format='json',
+        )
+        self.assertEqual(exam_create.status_code, status.HTTP_201_CREATED)
+        exam_schedule_id = exam_create.data['data']['id']
+
+        exam_create_duplicate = self.client.post(
+            reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}),
+            {
+                'exam_date': '2027-01-16',
+                'start_time': '10:00:00',
+                'end_time': '12:00:00',
+            },
+            format='json',
+        )
+        self.assertEqual(exam_create_duplicate.status_code, status.HTTP_409_CONFLICT)
+
+        exam_get = self.client.get(reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}))
+        self.assertEqual(exam_get.status_code, status.HTTP_200_OK)
+        self.assertEqual(exam_get.data['data']['id'], exam_schedule_id)
+
+        exam_publish = self.client.post(reverse('admin-section-exam-schedule-publish', kwargs={'section_id': new_section_id}))
+        self.assertEqual(exam_publish.status_code, status.HTTP_200_OK)
+        self.assertTrue(exam_publish.data['data']['is_published'])
+
+        exam_patch = self.client.patch(
+            reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}),
+            {'location': 'Hall B'},
+            format='json',
+        )
+        self.assertEqual(exam_patch.status_code, status.HTTP_200_OK)
+        self.assertEqual(ExamSchedule.objects.get(id=exam_schedule_id).location, 'Hall B')
+        self.assertFalse(ExamSchedule.objects.get(id=exam_schedule_id).is_published)
 
         section_patch = self.client.patch(
             reverse('admin-section-detail', kwargs={'section_id': new_section_id}),

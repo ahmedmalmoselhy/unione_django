@@ -78,6 +78,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: admin_views, shared_views, import_export_views, analytics_views, audit_log_views, and webhook_delivery achieved near/full coverage.
 - Completed: app-code coverage baseline increased to 92% (tests/migrations omitted), while CI fail-under remains enforced.
 - Completed: section teaching assistant assignment feature implemented with admin endpoints and comprehensive test coverage (/api/admin/sections/{id}/teaching-assistants).
+- Completed: section exam schedule management and publish endpoints implemented with comprehensive test coverage (/api/admin/sections/{id}/exam-schedule).
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
