@@ -124,6 +124,12 @@ Base path: /api
 - GET /api/admin/export/enrollments
 - GET /api/admin/export/grades
 
+## Email Side Effects
+
+- POST /api/professor/sections/{section_id}/announcements: Sends announcement emails to active enrolled students in the section.
+- POST /api/admin/sections/{section_id}/exam-schedule/publish: Sends exam schedule publication emails to active enrolled students in the section.
+- POST /api/professor/sections/{section_id}/grades: Sends final grade publication emails for rows submitted with status=complete.
+
 ## Response Convention
 
 ```json

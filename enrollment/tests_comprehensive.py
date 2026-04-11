@@ -1,4 +1,5 @@
 from django.contrib.auth.models import AnonymousUser, User
+from django.core import mail
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -365,6 +366,9 @@ class ProfessorViewsComprehensiveTests(_BaseEnrollmentSetup, APITestCase):
         )
         self.assertEqual(success_response.status_code, status.HTTP_200_OK)
         self.assertEqual(Grade.objects.get(enrollment=self.active_enrollment).points, 88)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Final grade published', mail.outbox[0].subject)
+        self.assertIn(self.student_user.email, mail.outbox[0].to)
 
     def test_professor_attendance_create_detail_update_paths(self):
         invalid_date_response = self.client.post(
@@ -417,6 +421,8 @@ class ProfessorViewsComprehensiveTests(_BaseEnrollmentSetup, APITestCase):
         self.assertEqual(success_put.status_code, status.HTTP_200_OK)
 
     def test_professor_announcements_create_list_delete_paths(self):
+        mail.outbox.clear()
+
         missing_fields_response = self.client.post(
             reverse('professor-section-announcements', kwargs={'section_id': self.section.id}),
             {'title': 'Only title'},
@@ -431,6 +437,9 @@ class ProfessorViewsComprehensiveTests(_BaseEnrollmentSetup, APITestCase):
         )
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         ann_id = create_response.data['data']['id']
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('New announcement', mail.outbox[0].subject)
+        self.assertIn(self.student_user.email, mail.outbox[0].to)
 
         list_response = self.client.get(reverse('professor-section-announcements', kwargs={'section_id': self.section.id}))
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
@@ -820,9 +829,20 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
         self.assertEqual(exam_get.status_code, status.HTTP_200_OK)
         self.assertEqual(exam_get.data['data']['id'], exam_schedule_id)
 
+        CourseEnrollment.objects.create(
+            student=self.student_profile,
+            section_id=new_section_id,
+            academic_term=self.term,
+            status=CourseEnrollment.EnrollmentStatus.ACTIVE,
+        )
+        mail.outbox.clear()
+
         exam_publish = self.client.post(reverse('admin-section-exam-schedule-publish', kwargs={'section_id': new_section_id}))
         self.assertEqual(exam_publish.status_code, status.HTTP_200_OK)
         self.assertTrue(exam_publish.data['data']['is_published'])
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Exam schedule published', mail.outbox[0].subject)
+        self.assertIn(self.student_user.email, mail.outbox[0].to)
 
         exam_patch = self.client.patch(
             reverse('admin-section-exam-schedule', kwargs={'section_id': new_section_id}),
@@ -855,13 +875,6 @@ class AdminOrganizationScopedAccessComprehensiveTests(_BaseEnrollmentSetup, APIT
         )
         self.assertEqual(group_create.status_code, status.HTTP_201_CREATED)
         group_project_id = group_create.data['data']['id']
-
-        CourseEnrollment.objects.create(
-            student=self.student_profile,
-            section_id=new_section_id,
-            academic_term=self.term,
-            status=CourseEnrollment.EnrollmentStatus.ACTIVE,
-        )
 
         outsider_user = User.objects.create_user(
             username='group_outsider',

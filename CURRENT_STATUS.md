@@ -80,6 +80,7 @@ Overall Status: ACTIVE DEVELOPMENT
 - Completed: section teaching assistant assignment feature implemented with admin endpoints and comprehensive test coverage (/api/admin/sections/{id}/teaching-assistants).
 - Completed: section exam schedule management and publish endpoints implemented with comprehensive test coverage (/api/admin/sections/{id}/exam-schedule).
 - Completed: section group project management and member assignment endpoints implemented with comprehensive test coverage (/api/admin/sections/{id}/group-projects).
+- Completed: outbound email delivery hooks implemented for section announcements, exam schedule publication, and final grade publication events.
 - Pending: migration execution against PostgreSQL target (unione_db) when connectivity is available.
 
 ### Frontend Planning
@@ -112,7 +113,7 @@ Overall Status: ACTIVE DEVELOPMENT
 ## Next Immediate Steps
 
 1. Run migrations against PostgreSQL target once local DB connectivity is confirmed.
-2. Implement outbound email delivery hooks for announcement publish, exam schedule publish, and final grade publication events.
-3. Add deployment/runbook notes for enabling scheduler service in staging/production.
-4. Validate archival retention behavior in production-like workload.
-5. Validate PostgreSQL-specific CI path when DB service is introduced.
+2. Add deployment/runbook notes for enabling scheduler service in staging/production.
+3. Validate archival retention behavior in production-like workload.
+4. Validate PostgreSQL-specific CI path when DB service is introduced.
+5. Validate SMTP-backed delivery behavior in staging with real provider credentials.

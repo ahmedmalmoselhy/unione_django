@@ -23,6 +23,7 @@ from academics.models import (
 )
 from academics.webhook_delivery import enqueue_webhook_deliveries
 
+from .email_delivery import send_final_grade_emails, send_section_announcement_emails
 from .models import CourseEnrollment
 from .services import (
 	build_student_academic_history,
@@ -1225,7 +1226,7 @@ class ProfessorSectionGradesView(APIView):
 
 		enrollments = {
 			e.id: e
-			for e in CourseEnrollment.objects.select_related('student')
+			for e in CourseEnrollment.objects.select_related('student__user')
 			.filter(id__in=enrollment_ids, section=section)
 			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
 		}
@@ -1280,6 +1281,26 @@ class ProfessorSectionGradesView(APIView):
 						},
 					}
 				)
+
+		final_grade_email_rows = []
+		for row in rows:
+			if row.get('status', Grade.Status.COMPLETE) != Grade.Status.COMPLETE:
+				continue
+
+			enrollment_id = int(row['enrollment_id'])
+			enrollment = enrollments[enrollment_id]
+			student_user = enrollment.student.user
+			final_grade_email_rows.append(
+				{
+					'email': student_user.email,
+					'student_name': student_user.get_full_name() or student_user.username,
+					'student_number': enrollment.student.student_number,
+					'letter_grade': row.get('letter_grade'),
+					'points': row.get('points'),
+				}
+			)
+
+		send_final_grade_emails(section, final_grade_email_rows)
 
 		return Response(
 			{
@@ -1710,11 +1731,13 @@ class ProfessorSectionAnnouncementsView(APIView):
 			is_pinned=bool(payload.get('is_pinned', False)),
 		)
 
-		enrolled_student_user_ids = list(
+		enrolled_student_rows = list(
 			CourseEnrollment.objects.filter(section=section)
 			.exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
-			.values_list('student__user_id', flat=True)
+			.values_list('student__user_id', 'student__user__email')
 		)
+		enrolled_student_user_ids = [row[0] for row in enrolled_student_rows]
+		recipient_emails = [row[1] for row in enrolled_student_rows if row[1]]
 		Notification.objects.bulk_create(
 			[
 				Notification(
@@ -1741,6 +1764,7 @@ class ProfessorSectionAnnouncementsView(APIView):
 				'is_pinned': announcement.is_pinned,
 			},
 		)
+		send_section_announcement_emails(section, announcement, recipient_emails)
 
 		return Response(
 			{

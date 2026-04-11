@@ -15,6 +15,7 @@ from academics.models import (
     SectionTeachingAssistant,
 )
 from accounts.permissions import HasAnyRole
+from enrollment.email_delivery import send_exam_schedule_published_emails
 from enrollment.models import CourseEnrollment, ProfessorProfile, StudentProfile
 from organization.models import Department, Faculty, University
 
@@ -800,7 +801,7 @@ class AdminSectionTeachingAssistantsView(APIView):
         return Response({'status': 'success', 'data': data})
 
     def post(self, request, section_id):
-        section = Section.objects.filter(id=section_id).first()
+        section = Section.objects.select_related('course').filter(id=section_id).first()
         if not section:
             return Response({'status': 'error', 'message': 'Section not found'}, status=status.HTTP_404_NOT_FOUND)
 
@@ -969,6 +970,13 @@ class AdminSectionExamSchedulePublishView(APIView):
         schedule.is_published = True
         schedule.published_at = timezone.now()
         schedule.save(update_fields=['is_published', 'published_at', 'updated_at'])
+
+        recipient_emails = list(
+            CourseEnrollment.objects.filter(section_id=section_id)
+            .exclude(status=CourseEnrollment.EnrollmentStatus.DROPPED)
+            .values_list('student__user__email', flat=True)
+        )
+        send_exam_schedule_published_emails(section, schedule, recipient_emails)
 
         return Response(
             {
