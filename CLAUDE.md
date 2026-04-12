@@ -22,6 +22,7 @@ Custom `AccessTokenAuthentication` backend (`accounts/authentication.py`) implem
 ### API Organization
 
 URL structure in `config/urls.py`:
+
 - `/api/auth/*` → accounts.urls
 - `/api/student/*` → enrollment.urls
 - `/api/professor/*` → enrollment.professor_urls
@@ -33,6 +34,7 @@ URL structure in `config/urls.py`:
 ### Response Convention
 
 All API responses follow this envelope format:
+
 ```json
 {
   "status": "success",
@@ -77,6 +79,7 @@ python manage.py seed_phase2_baseline --password Pass1234!@#
 ```
 
 Demo credentials after seed_phase2_baseline:
+
 - professor1 / Pass1234!@#
 - professor2 / Pass1234!@#
 - student1 / Pass1234!@#
@@ -117,6 +120,7 @@ python manage.py run_webhook_scheduler --run-once  # single cycle
 ```
 
 Webhook settings (configurable via env or settings.py):
+
 - `WEBHOOK_WORKER_INTERVAL_SECONDS` (default: 60)
 - `WEBHOOK_DELIVERY_BATCH_LIMIT` (default: 100)
 - `WEBHOOK_DELIVERY_TIMEOUT_SECONDS` (default: 10)
@@ -145,6 +149,7 @@ Roles are checked via `Role` and `UserRole` models. Scoped access uses `scope` (
 ### Throttling
 
 Scoped throttling is configured in `REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']`:
+
 - `api_login`: 60/min
 - `api_password`: 60/min
 - `api_enroll`: 20/min
@@ -161,6 +166,7 @@ Scoped throttling is configured in `REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']`:
 ### Testing Patterns
 
 Tests use Django's `APITestCase` with `rest_framework.test.APITestCase`. Authentication in tests:
+
 ```python
 self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
 ```
@@ -168,6 +174,7 @@ self.client.credentials(HTTP_AUTHORIZATION=f'Token {token}')
 ### Enrollment and Waitlist Logic
 
 The `enrollment/services.py` module contains business logic for:
+
 - Enrolling with capacity checks
 - Automatic waitlist placement when section is full
 - Waitlist promotion when enrolled students drop
@@ -176,11 +183,13 @@ The `enrollment/services.py` module contains business logic for:
 ## Configuration
 
 Environment variables (see `.env.example`):
+
 - `DB_ENGINE`: Database backend (defaults to PostgreSQL)
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`
 - `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`
 
 Switch to SQLite for local development:
+
 ```bash
 $env:DB_ENGINE="django.db.backends.sqlite3"
 $env:DB_NAME="db.sqlite3"
