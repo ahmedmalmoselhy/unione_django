@@ -1,0 +1,8 @@
+"""WebSocket routing configuration."""
+from django.urls import re_path
+
+from enrollment import consumers
+
+websocket_urlpatterns = [
+    re_path(r'ws/notifications/$', consumers.NotificationConsumer.as_asgi(), name='ws-notifications'),
+]
