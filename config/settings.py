@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import sentry_sdk
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,6 +20,17 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / ".env")
+
+# Sentry Error Tracking
+SENTRY_DSN = os.getenv('SENTRY_DSN')
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '1.0')),
+        profiles_sample_rate=float(os.getenv('SENTRY_PROFILES_SAMPLE_RATE', '0.0')),
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'development'),
+        send_default_pii=True,
+    )
 
 
 # Quick-start development settings - unsuitable for production
