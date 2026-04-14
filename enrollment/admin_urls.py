@@ -15,6 +15,10 @@ from .admin_student_views import (
     AdminStudentDetailView,
     AdminStudentsView,
 )
+from .admin_professor_views import (
+    AdminProfessorDetailView,
+    AdminProfessorsView,
+)
 from .analytics_views import (
     AttendanceAnalyticsView,
     EnrollmentAnalyticsView,
@@ -58,6 +62,8 @@ urlpatterns = [
     path('employees/<int:employee_id>', AdminEmployeeDetailView.as_view(), name='admin-employee-detail'),
     path('students', AdminStudentsView.as_view(), name='admin-students'),
     path('students/<int:student_id>', AdminStudentDetailView.as_view(), name='admin-student-detail'),
+    path('professors', AdminProfessorsView.as_view(), name='admin-professors'),
+    path('professors/<int:professor_id>', AdminProfessorDetailView.as_view(), name='admin-professor-detail'),
     path('webhooks', AdminWebhooksView.as_view(), name='admin-webhooks'),
     path('webhooks/<int:webhook_id>', AdminWebhookDetailView.as_view(), name='admin-webhook-detail'),
     path('webhooks/<int:webhook_id>/deliveries', AdminWebhookDeliveriesView.as_view(), name='admin-webhook-deliveries'),
