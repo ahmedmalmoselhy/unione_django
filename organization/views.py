@@ -1,7 +1,9 @@
+from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import CanViewOrganization
+from enrollment.caching import cache_key, get_cached, set_cached
 
 from .models import Department, Faculty, University
 from .serializers import DepartmentSerializer, FacultySerializer, UniversitySerializer

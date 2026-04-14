@@ -5,3 +5,5 @@ drf-spectacular
 psycopg[binary]
 python-dotenv
 openpyxl>=3.1.0
+"django-redis>=6.0.0"  
+"redis>=7.0.0" 

@@ -176,3 +176,26 @@ WEBHOOK_DELIVERY_RETRY_BASE_SECONDS = int(os.getenv('WEBHOOK_DELIVERY_RETRY_BASE
 WEBHOOK_DELIVERY_ARCHIVE_AFTER_DAYS = int(os.getenv('WEBHOOK_DELIVERY_ARCHIVE_AFTER_DAYS', '30'))
 WEBHOOK_DELIVERY_ARCHIVE_RETENTION_DAYS = int(os.getenv('WEBHOOK_DELIVERY_ARCHIVE_RETENTION_DAYS', '90'))
 WEBHOOK_ARCHIVE_DIR = BASE_DIR / os.getenv('WEBHOOK_ARCHIVE_DIR', 'var/webhook_archives')
+
+# Caching Configuration
+REDIS_URL = os.getenv('REDIS_URL', 'redis://127.0.0.1:6379/1')
+REDIS_PASSWORD = os.getenv('REDIS_PASSWORD', None)
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            'PASSWORD': REDIS_PASSWORD,
+            'SERIALIZER': 'django_redis.serializers.json.JSONSerializer',
+        },
+        'KEY_PREFIX': 'unione',
+        'TIMEOUT': 3600,  # 1 hour default
+    }
+}
+
+# Cache Middleware Settings
+CACHE_MIDDLEWARE_ALIAS = 'default'
+CACHE_MIDDLEWARE_SECONDS = 600  # 10 minutes
+CACHE_MIDDLEWARE_KEY_PREFIX = 'unione_api'
