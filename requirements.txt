@@ -7,3 +7,4 @@ python-dotenv
 openpyxl>=3.1.0
 "django-redis>=6.0.0"  
 "redis>=7.0.0" 
+"reportlab>=4.0.0"  

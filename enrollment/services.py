@@ -413,46 +413,167 @@ def _build_simple_pdf_from_lines(lines):
 
 
 def build_student_transcript_pdf_bytes(student_profile, academic_term_id=None):
+	"""Generate professional PDF transcript using ReportLab."""
+	from reportlab.lib import colors
+	from reportlab.lib.pagesizes import letter
+	from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+	from reportlab.lib.units import inch
+	from reportlab.platypus import (
+		SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, KeepTogether
+	)
+	
 	transcript = build_student_transcript(student_profile, academic_term_id=academic_term_id)
-
-	lines = [
-		'UniOne - Official Student Transcript',
-		'',
-		f"Student Number: {transcript['student']['student_number']}",
-		f"Faculty: {transcript['student']['faculty']}",
-		f"Department: {transcript['student']['department']}",
-		f"Academic Year: {transcript['student']['academic_year']}",
-		f"Semester: {transcript['student']['semester']}",
+	buffer = io.BytesIO()
+	
+	doc = SimpleDocTemplate(
+		buffer,
+		pagesize=letter,
+		rightMargin=72,
+		leftMargin=72,
+		topMargin=72,
+		bottomMargin=72,
+		title=f"Transcript - {transcript['student']['student_number']}",
+		author="UniOne University",
+	)
+	
+	styles = getSampleStyleSheet()
+	
+	# Custom styles
+	title_style = ParagraphStyle(
+		'CustomTitle',
+		parent=styles['Heading1'],
+		fontSize=18,
+		spaceAfter=6,
+		textColor=colors.HexColor('#1a365d'),
+		alignment=1,  # Center
+	)
+	
+	header_style = ParagraphStyle(
+		'Header',
+		parent=styles['Normal'],
+		fontSize=10,
+		spaceAfter=4,
+	)
+	
+	section_style = ParagraphStyle(
+		'Section',
+		parent=styles['Heading2'],
+		fontSize=12,
+		spaceBefore=12,
+		spaceAfter=6,
+		textColor=colors.HexColor('#2c5282'),
+	)
+	
+	elements = []
+	
+	# Title
+	elements.append(Paragraph("UniOne University", title_style))
+	elements.append(Paragraph("Official Student Transcript", ParagraphStyle('Subtitle', parent=styles['Heading2'], alignment=1, fontSize=14, textColor=colors.HexColor('#2d3748'))))
+	elements.append(Spacer(1, 0.3*inch))
+	
+	# Student info
+	student = transcript['student']
+	info_data = [
+		['Student Number:', student['student_number'], 'Faculty:', student['faculty']],
+		['Department:', student['department'], 'Academic Year:', str(student['academic_year'])],
+		['Semester:', str(student['semester']), 'Enrollment Status:', student['enrollment_status']],
 	]
-
+	info_table = Table(info_data, colWidths=[1.5*inch, 2*inch, 1.5*inch, 2*inch])
+	info_table.setStyle(TableStyle([
+		('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+		('FONTSIZE', (0, 0), (-1, -1), 9),
+		('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#4a5568')),
+		('TEXTCOLOR', (2, 0), (2, -1), colors.HexColor('#4a5568')),
+		('FONTNAME', (1, 0), (1, -1), 'Helvetica-Bold'),
+		('FONTNAME', (3, 0), (3, -1), 'Helvetica-Bold'),
+		('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f7fafc')),
+		('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#f7fafc')),
+		('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+		('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+		('TOPPADDING', (0, 0), (-1, -1), 4),
+		('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+	]))
+	elements.append(info_table)
+	elements.append(Spacer(1, 0.3*inch))
+	
+	# Terms and courses
 	for term in transcript['terms']:
-		lines.append('')
-		lines.append(f"Term: {term['name']} ({term['start_date']} - {term['end_date']})")
+		elements.append(Paragraph(f"Term: {term['name']} ({term['start_date']} - {term['end_date']})", section_style))
+		
+		# Course table
+		course_data = [['Course Code', 'Course Name', 'CH', 'Grade', 'Status']]
 		for course_item in term['courses']:
 			course = course_item['course']
 			grade = course_item['grade']
 			grade_label = grade['letter_grade'] if grade['letter_grade'] else 'N/A'
-			lines.append(
-				f"- {course['code']} {course['name']} ({course['credit_hours']} CH) | "
-				f"Grade: {grade_label} | Status: {course_item['status']}"
-			)
-
+			course_data.append([
+				course['code'],
+				course['name'][:40] + ('...' if len(course['name']) > 40 else ''),
+				str(course['credit_hours']),
+				grade_label,
+				course_item['status'].title()
+			])
+		
+		course_table = Table(course_data, colWidths=[1*inch, 2.5*inch, 0.6*inch, 0.8*inch, 1*inch])
+		course_table.setStyle(TableStyle([
+			('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c5282')),
+			('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+			('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+			('FONTSIZE', (0, 0), (-1, 0), 9),
+			('FONTSIZE', (0, 1), (-1, -1), 8),
+			('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e0')),
+			('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f7fafc')]),
+			('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+			('TOPPADDING', (0, 0), (-1, -1), 4),
+			('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+		]))
+		elements.append(course_table)
+		
+		# Term statistics
 		stats = term['statistics']
 		term_gpa = stats['term_gpa'] if stats['term_gpa'] is not None else 'N/A'
-		lines.append(
-			f"Term Summary: Attempted CH={stats['attempted_credit_hours']}, "
-			f"Earned CH={stats['earned_credit_hours']}, GPA={term_gpa}"
-		)
-
+		elements.append(Spacer(1, 0.1*inch))
+		elements.append(Paragraph(
+			f"<b>Term Summary:</b> Attempted CH={stats['attempted_credit_hours']}, "
+			f"Earned CH={stats['earned_credit_hours']}, <b>GPA={term_gpa}</b>",
+			header_style
+		))
+		elements.append(Spacer(1, 0.2*inch))
+	
+	# Cumulative summary
+	elements.append(PageBreak())
+	elements.append(Paragraph("Cumulative Summary", section_style))
+	
 	summary = transcript['summary']
 	cumulative_gpa = summary['cumulative_gpa'] if summary['cumulative_gpa'] is not None else 'N/A'
-	lines.extend(
-		[
-			'',
-			f"Cumulative Attempted CH: {summary['attempted_credit_hours']}",
-			f"Cumulative Earned CH: {summary['earned_credit_hours']}",
-			f"Cumulative GPA: {cumulative_gpa}",
-		]
-	)
-
-	return _build_simple_pdf_from_lines(lines)
+	
+	summary_data = [
+		['Cumulative Attempted Credit Hours:', str(summary['attempted_credit_hours'])],
+		['Cumulative Earned Credit Hours:', str(summary['earned_credit_hours'])],
+		['Cumulative GPA:', str(cumulative_gpa)],
+		['Academic Standing:', student.get('academic_standing', 'N/A').title()],
+	]
+	summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+	summary_table.setStyle(TableStyle([
+		('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+		('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
+		('FONTSIZE', (0, 0), (-1, -1), 10),
+		('TEXTCOLOR', (0, 0), (0, -1), colors.HexColor('#2d3748')),
+		('BACKGROUND', (0, 2), (-1, 2), colors.HexColor('#edf2f7')),
+		('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e0')),
+		('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+		('TOPPADDING', (0, 0), (-1, -1), 8),
+		('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+	]))
+	elements.append(summary_table)
+	
+	# Footer
+	elements.append(Spacer(1, 0.5*inch))
+	elements.append(Paragraph(
+		"<i>This is an official document generated by UniOne University system.</i>",
+		ParagraphStyle('Footer', parent=styles['Normal'], fontSize=8, textColor=colors.HexColor('#718096'), alignment=1)
+	))
+	
+	doc.build(elements)
+	buffer.seek(0)
+	return buffer.getvalue()
