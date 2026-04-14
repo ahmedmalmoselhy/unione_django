@@ -61,3 +61,17 @@ class Department(models.Model):
 
 	def __str__(self):
 		return f'{self.faculty.code}-{self.code}'
+
+
+class UniversityVicePresident(models.Model):
+	university = models.ForeignKey(University, on_delete=models.CASCADE, related_name='vice_presidents')
+	user = models.OneToOneField('auth.User', on_delete=models.CASCADE, related_name='vice_president_profile')
+	title = models.CharField(max_length=255)
+	start_date = models.DateField()
+	end_date = models.DateField(null=True, blank=True)
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'{self.user.get_full_name() or self.user.username} - {self.title}'
