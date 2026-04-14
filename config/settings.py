@@ -174,6 +174,10 @@ REST_FRAMEWORK = {
         'api_enroll': '20/min',
         'api_grade': '30/min',
     },
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
+    'DEFAULT_VERSION': 'v1',
+    'ALLOWED_VERSIONS': ['v1', 'v2'],
+    'VERSION_PARAM': 'version',
 }
 
 SPECTACULAR_SETTINGS = {
