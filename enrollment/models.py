@@ -12,7 +12,7 @@ class ProfessorProfile(models.Model):
 	staff_number = models.CharField(max_length=50, unique=True)
 	department = models.ForeignKey('organization.Department', on_delete=models.PROTECT, related_name='professors')
 	specialization = models.CharField(max_length=255, null=True, blank=True)
-	academic_rank = models.CharField(max_length=30, choices=AcademicRank.choices, default=AcademicRank.ASSISTANT)
+	academic_rank = models.CharField(max_length=30, choices=AcademicRank.choices, default=AcademicRank.ASSISTANT, db_index=True)
 	office_location = models.CharField(max_length=100, null=True, blank=True)
 	hired_at = models.DateField()
 	created_at = models.DateTimeField(auto_now_add=True)
@@ -37,10 +37,10 @@ class StudentProfile(models.Model):
 	student_number = models.CharField(max_length=50, unique=True)
 	faculty = models.ForeignKey('organization.Faculty', on_delete=models.PROTECT, related_name='students')
 	department = models.ForeignKey('organization.Department', on_delete=models.PROTECT, related_name='students')
-	academic_year = models.PositiveSmallIntegerField(default=1)
+	academic_year = models.PositiveSmallIntegerField(default=1, db_index=True)
 	semester = models.PositiveSmallIntegerField(default=1)
-	enrollment_status = models.CharField(max_length=20, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE)
-	gpa = models.DecimalField(max_digits=3, decimal_places=2, default=0)
+	enrollment_status = models.CharField(max_length=20, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE, db_index=True)
+	gpa = models.DecimalField(max_digits=3, decimal_places=2, default=0, db_index=True)
 	academic_standing = models.CharField(max_length=20, choices=AcademicStanding.choices, default=AcademicStanding.GOOD)
 	enrolled_at = models.DateField()
 	graduated_at = models.DateField(null=True, blank=True)
@@ -49,6 +49,12 @@ class StudentProfile(models.Model):
 
 	def __str__(self):
 		return self.student_number
+
+	class Meta:
+		indexes = [
+			models.Index(fields=['faculty', 'enrollment_status']),
+			models.Index(fields=['department', 'academic_year']),
+		]
 
 
 class CourseEnrollment(models.Model):
@@ -60,8 +66,8 @@ class CourseEnrollment(models.Model):
 	student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='enrollments')
 	section = models.ForeignKey('academics.Section', on_delete=models.CASCADE, related_name='enrollments')
 	academic_term = models.ForeignKey('academics.AcademicTerm', on_delete=models.CASCADE, related_name='enrollments')
-	status = models.CharField(max_length=20, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE)
-	registered_at = models.DateTimeField(auto_now_add=True)
+	status = models.CharField(max_length=20, choices=EnrollmentStatus.choices, default=EnrollmentStatus.ACTIVE, db_index=True)
+	registered_at = models.DateTimeField(auto_now_add=True, db_index=True)
 	dropped_at = models.DateTimeField(null=True, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
@@ -72,6 +78,10 @@ class CourseEnrollment(models.Model):
 				fields=['student', 'section', 'academic_term'],
 				name='uniq_student_section_term_enrollment',
 			)
+		]
+		indexes = [
+			models.Index(fields=['status', 'registered_at']),
+			models.Index(fields=['academic_term', 'status']),
 		]
 
 	def __str__(self):
