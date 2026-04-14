@@ -30,6 +30,7 @@ class Course(models.Model):
 	is_elective = models.BooleanField(default=False)
 	is_active = models.BooleanField(default=True)
 	prerequisites = models.ManyToManyField('self', symmetrical=False, blank=True, related_name='required_by')
+	departments = models.ManyToManyField('organization.Department', related_name='courses_offered')
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 
