@@ -4,3 +4,4 @@ django-filter
 drf-spectacular
 psycopg[binary]
 python-dotenv
+openpyxl>=3.1.0

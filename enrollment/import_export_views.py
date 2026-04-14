@@ -1,6 +1,8 @@
 import csv
+import io
 from io import StringIO
 
+import openpyxl
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.utils import timezone
@@ -43,6 +45,7 @@ def _to_bool(value, default=False):
 
 
 def _load_rows_from_request(request):
+    """Load rows from CSV file, Excel file, or JSON payload."""
     payload = request.data if isinstance(request.data, dict) else {}
     if 'rows' in payload and isinstance(payload['rows'], list):
         return payload['rows']
@@ -51,6 +54,27 @@ def _load_rows_from_request(request):
     if not uploaded_file:
         return None
 
+    file_name = uploaded_file.name.lower()
+
+    # Handle Excel files (.xlsx, .xls)
+    if file_name.endswith(('.xlsx', '.xls')):
+        workbook = openpyxl.load_workbook(uploaded_file, read_only=True, data_only=True)
+        sheet = workbook.active
+        rows = []
+        headers = None
+        for row in sheet.iter_rows(values_only=True):
+            if headers is None:
+                headers = [str(h).strip() if h else f'column_{i}' for i, h in enumerate(row)]
+            else:
+                row_dict = {}
+                for i, value in enumerate(row):
+                    if i < len(headers):
+                        row_dict[headers[i]] = value
+                rows.append(row_dict)
+        workbook.close()
+        return rows
+
+    # Handle CSV files
     decoded = uploaded_file.read().decode('utf-8-sig')
     reader = csv.DictReader(StringIO(decoded))
     return list(reader)
@@ -74,6 +98,38 @@ def _get_client_ip(request):
     if x_forwarded_for:
         return x_forwarded_for.split(',')[0].strip()
     return request.META.get('REMOTE_ADDR')
+
+
+def _write_excel_response(headers, rows, filename_base):
+    """Create an Excel file response."""
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = 'Data'
+
+    # Write headers
+    for col_num, header in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=col_num)
+        cell.value = header
+        cell.font = openpyxl.styles.Font(bold=True)
+
+    # Write data rows
+    for row_num, row_data in enumerate(rows, 2):
+        for col_num, value in enumerate(row_data, 1):
+            sheet.cell(row=row_num, column=col_num, value=value)
+
+    # Save to bytes
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    workbook.close()
+
+    timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+    response = HttpResponse(
+        output.read(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename_base}_{timestamp}.xlsx"'
+    return response
 
 
 class AdminImportUsersView(APIView):
@@ -261,49 +317,54 @@ class AdminExportEnrollmentsView(APIView):
             else:
                 queryset = queryset.none()
 
-        response = HttpResponse(content_type='text/csv')
-        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-        response['Content-Disposition'] = f'attachment; filename="enrollments_{timestamp}.csv"'
+        headers = [
+            'enrollment_id',
+            'student_number',
+            'student_username',
+            'faculty',
+            'department',
+            'course_code',
+            'course_name',
+            'term',
+            'status',
+            'registered_at',
+            'dropped_at',
+        ]
 
-        writer = csv.writer(response)
-        writer.writerow(
-            [
-                'enrollment_id',
-                'student_number',
-                'student_username',
-                'faculty',
-                'department',
-                'course_code',
-                'course_name',
-                'term',
-                'status',
-                'registered_at',
-                'dropped_at',
-            ]
-        )
+        rows = []
         for enrollment in queryset:
-            writer.writerow(
-                [
-                    enrollment.id,
-                    enrollment.student.student_number,
-                    enrollment.student.user.username,
-                    enrollment.student.faculty.name,
-                    enrollment.student.department.name,
-                    enrollment.section.course.code,
-                    enrollment.section.course.name,
-                    enrollment.academic_term.name,
-                    enrollment.status,
-                    enrollment.registered_at.isoformat() if enrollment.registered_at else '',
-                    enrollment.dropped_at.isoformat() if enrollment.dropped_at else '',
-                ]
-            )
+            rows.append([
+                enrollment.id,
+                enrollment.student.student_number,
+                enrollment.student.user.username,
+                enrollment.student.faculty.name,
+                enrollment.student.department.name,
+                enrollment.section.course.code,
+                enrollment.section.course.name,
+                enrollment.academic_term.name,
+                enrollment.status,
+                enrollment.registered_at.isoformat() if enrollment.registered_at else '',
+                enrollment.dropped_at.isoformat() if enrollment.dropped_at else '',
+            ])
+
+        # Check if Excel format requested
+        export_format = request.query_params.get('format', 'csv').lower()
+        if export_format in ('xlsx', 'excel'):
+            response = _write_excel_response(headers, rows, 'enrollments')
+        else:
+            response = HttpResponse(content_type='text/csv')
+            timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            response['Content-Disposition'] = f'attachment; filename="enrollments_{timestamp}.csv"'
+            writer = csv.writer(response)
+            writer.writerow(headers)
+            writer.writerows(rows)
 
         _create_audit_entry(
             request,
             action=AuditLog.Action.EXPORT,
             entity_type='CourseEnrollment',
             description='Exported enrollment report',
-            new_values={'records': queryset.count()},
+            new_values={'records': queryset.count(), 'format': export_format},
         )
         return response
 
@@ -337,52 +398,57 @@ class AdminExportGradesView(APIView):
             else:
                 queryset = queryset.none()
 
-        response = HttpResponse(content_type='text/csv')
-        timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
-        response['Content-Disposition'] = f'attachment; filename="grades_{timestamp}.csv"'
+        headers = [
+            'grade_id',
+            'enrollment_id',
+            'student_number',
+            'student_username',
+            'faculty',
+            'department',
+            'course_code',
+            'course_name',
+            'term',
+            'points',
+            'letter_grade',
+            'status',
+            'updated_at',
+        ]
 
-        writer = csv.writer(response)
-        writer.writerow(
-            [
-                'grade_id',
-                'enrollment_id',
-                'student_number',
-                'student_username',
-                'faculty',
-                'department',
-                'course_code',
-                'course_name',
-                'term',
-                'points',
-                'letter_grade',
-                'status',
-                'updated_at',
-            ]
-        )
+        rows = []
         for grade in queryset:
-            writer.writerow(
-                [
-                    grade.id,
-                    grade.enrollment_id,
-                    grade.enrollment.student.student_number,
-                    grade.enrollment.student.user.username,
-                    grade.enrollment.student.faculty.name,
-                    grade.enrollment.student.department.name,
-                    grade.enrollment.section.course.code,
-                    grade.enrollment.section.course.name,
-                    grade.enrollment.academic_term.name,
-                    grade.points,
-                    grade.letter_grade,
-                    grade.status,
-                    grade.updated_at.isoformat() if grade.updated_at else '',
-                ]
-            )
+            rows.append([
+                grade.id,
+                grade.enrollment_id,
+                grade.enrollment.student.student_number,
+                grade.enrollment.student.user.username,
+                grade.enrollment.student.faculty.name,
+                grade.enrollment.student.department.name,
+                grade.enrollment.section.course.code,
+                grade.enrollment.section.course.name,
+                grade.enrollment.academic_term.name,
+                grade.points,
+                grade.letter_grade,
+                grade.status,
+                grade.updated_at.isoformat() if grade.updated_at else '',
+            ])
+
+        # Check if Excel format requested
+        export_format = request.query_params.get('format', 'csv').lower()
+        if export_format in ('xlsx', 'excel'):
+            response = _write_excel_response(headers, rows, 'grades')
+        else:
+            response = HttpResponse(content_type='text/csv')
+            timestamp = timezone.now().strftime('%Y%m%d_%H%M%S')
+            response['Content-Disposition'] = f'attachment; filename="grades_{timestamp}.csv"'
+            writer = csv.writer(response)
+            writer.writerow(headers)
+            writer.writerows(rows)
 
         _create_audit_entry(
             request,
             action=AuditLog.Action.EXPORT,
             entity_type='Grade',
             description='Exported grade report',
-            new_values={'records': queryset.count()},
+            new_values={'records': queryset.count(), 'format': export_format},
         )
         return response
