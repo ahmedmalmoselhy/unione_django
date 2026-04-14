@@ -76,3 +76,33 @@ class CourseEnrollment(models.Model):
 
 	def __str__(self):
 		return f'{self.student.student_number}:{self.section_id}'
+
+
+class EmployeeProfile(models.Model):
+	class EmploymentType(models.TextChoices):
+		FULL_TIME = 'full_time', 'Full Time'
+		PART_TIME = 'part_time', 'Part Time'
+		CONTRACT = 'contract', 'Contract'
+		INTERN = 'intern', 'Intern'
+
+	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='employee_profile')
+	staff_number = models.CharField(max_length=50, unique=True)
+	job_title = models.CharField(max_length=255)
+	department = models.ForeignKey('organization.Department', on_delete=models.PROTECT, related_name='employees', null=True, blank=True)
+	employment_type = models.CharField(max_length=20, choices=EmploymentType.choices, default=EmploymentType.FULL_TIME)
+	salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+	hired_at = models.DateField()
+	terminated_at = models.DateField(null=True, blank=True)
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	def __str__(self):
+		return f'{self.staff_number} - {self.job_title}'
+
+	class Meta:
+		indexes = [
+			models.Index(fields=['staff_number']),
+			models.Index(fields=['employment_type']),
+			models.Index(fields=['is_active']),
+		]

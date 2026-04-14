@@ -7,6 +7,10 @@ from .admin_views import (
     AdminWebhookDetailView,
     AdminWebhooksView,
 )
+from .admin_employee_views import (
+    AdminEmployeeDetailView,
+    AdminEmployeesView,
+)
 from .analytics_views import (
     AttendanceAnalyticsView,
     EnrollmentAnalyticsView,
@@ -46,6 +50,8 @@ from .organization_admin_views import (
 urlpatterns = [
     path('users', AdminUsersView.as_view(), name='admin-users'),
     path('users/<int:user_id>', AdminUserDetailView.as_view(), name='admin-user-detail'),
+    path('employees', AdminEmployeesView.as_view(), name='admin-employees'),
+    path('employees/<int:employee_id>', AdminEmployeeDetailView.as_view(), name='admin-employee-detail'),
     path('webhooks', AdminWebhooksView.as_view(), name='admin-webhooks'),
     path('webhooks/<int:webhook_id>', AdminWebhookDetailView.as_view(), name='admin-webhook-detail'),
     path('webhooks/<int:webhook_id>/deliveries', AdminWebhookDeliveriesView.as_view(), name='admin-webhook-deliveries'),
