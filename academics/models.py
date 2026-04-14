@@ -29,6 +29,7 @@ class Course(models.Model):
 	level = models.PositiveSmallIntegerField(default=100)
 	is_elective = models.BooleanField(default=False)
 	is_active = models.BooleanField(default=True)
+	prerequisites = models.ManyToManyField('self', symmetrical=False, blank=True, related_name='required_by')
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
 

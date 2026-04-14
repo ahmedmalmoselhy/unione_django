@@ -316,6 +316,31 @@ class StudentEnrollmentView(APIView):
 				status=status.HTTP_404_NOT_FOUND,
 			)
 
+		# Check course prerequisites
+		prerequisites = section.course.prerequisites.all()
+		if prerequisites.exists():
+			# Get courses the student has passed
+			passed_courses = Grade.objects.filter(
+				enrollment__student=student,
+				enrollment__section__course__in=prerequisites,
+				enrollment__status=CourseEnrollment.EnrollmentStatus.COMPLETED,
+				points__gte=60
+			).values_list('enrollment__section__course_id', flat=True)
+
+			missing = [p for p in prerequisites if p.id not in passed_courses]
+			if missing:
+				return Response(
+					{
+						'status': 'error',
+						'message': 'Prerequisites not met',
+						'missing_prerequisites': [
+							{'id': p.id, 'code': p.code, 'name': p.name}
+							for p in missing
+						],
+					},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
 		existing = CourseEnrollment.objects.filter(
 			student=student,
 			section=section,
