@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 
 from accounts.models import AccountProfile, Role, UserRole
 from accounts.permissions import HasAnyRole
-from enrollment.models import StudentProfile
+from enrollment.models import StudentDepartmentHistory, StudentProfile
 from organization.models import Department, Faculty
 
 from django.contrib.auth import get_user_model
@@ -268,6 +268,17 @@ class AdminStudentDetailView(APIView):
                     {'status': 'error', 'message': 'Department not found'},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            
+            # Record transfer history if department is changing
+            if student.department_id and student.department_id != department.id:
+                StudentDepartmentHistory.objects.create(
+                    student=student,
+                    from_department=student.department,
+                    to_department=department,
+                    changed_by=request.user,
+                    note=payload.get('transfer_note'),
+                )
+            
             student.department = department
 
         # Update student fields

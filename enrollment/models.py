@@ -106,3 +106,18 @@ class EmployeeProfile(models.Model):
 			models.Index(fields=['employment_type']),
 			models.Index(fields=['is_active']),
 		]
+
+
+class StudentDepartmentHistory(models.Model):
+	student = models.ForeignKey(StudentProfile, on_delete=models.CASCADE, related_name='department_history')
+	from_department = models.ForeignKey('organization.Department', on_delete=models.SET_NULL, related_name='transfers_from', null=True, blank=True)
+	to_department = models.ForeignKey('organization.Department', on_delete=models.PROTECT, related_name='transfers_to')
+	changed_at = models.DateTimeField(auto_now_add=True)
+	changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+	note = models.TextField(blank=True, null=True)
+
+	def __str__(self):
+		return f'{self.student.student_number} transferred to {self.to_department.name}'
+
+	class Meta:
+		ordering = ['-changed_at']
