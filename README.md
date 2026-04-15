@@ -16,8 +16,8 @@ UniOne supports:
 
 - Backend: Django 5 + Django REST Framework
 - Database: PostgreSQL (unione_db)
-- Auth: DRF token/JWT style auth (implementation choice in Phase 1)
-- Background jobs: Celery + Redis (planned)
+- Auth: DRF token auth with custom multi-token session support
+- Background jobs: webhook scheduler commands implemented; Celery/Redis optional extension
 - Testing: pytest + pytest-django
 
 ## Documentation
@@ -56,10 +56,11 @@ python manage.py runserver
 
 Server: <http://127.0.0.1:8000>
 
-## Initial Roadmap
+## Delivery Snapshot
 
-- Phase 1: project bootstrap, auth foundation, org models, core migrations
-- Phase 2-8: feature parity rollout by module (student, professor, admin, communication, integrations)
+- Core backend modules are implemented (accounts, organization, academics, enrollment)
+- API scope is at backend parity for the UniOne domain baseline
+- Remaining effort focuses on operational hardening, extended test depth, and optional integrations
 
 ## Status
 

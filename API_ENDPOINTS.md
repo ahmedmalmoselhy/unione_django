@@ -1,4 +1,6 @@
-# UniOne Django API Endpoints (Planned)
+# UniOne Django API Endpoints
+
+Reference status: implemented in the Django backend unless explicitly marked optional.
 
 Base path: /api
 

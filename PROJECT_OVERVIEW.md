@@ -1,11 +1,11 @@
 # UniOne Django Project Overview
 
-Last Updated: April 2, 2026
-Status: Bootstrap Started
+Last Updated: April 15, 2026
+Status: Backend Feature Complete
 
 ## Summary
 
-This repository tracks a Django-first implementation of UniOne, mirroring core academic workflows from existing implementations:
+This repository hosts a complete Django REST implementation of UniOne, covering the core academic workflows:
 
 - authentication and role-based access
 - student enrollment lifecycle
@@ -21,31 +21,30 @@ Django REST API <-> PostgreSQL
    Web/Mobile Clients
 ```
 
-## Planned App Layout
+## Implemented App Layout
 
-- apps.accounts
-- apps.organization
-- apps.academics
-- apps.enrollment
-- apps.attendance
-- apps.communication
-- apps.integrations
-- apps.audit
+- accounts
+- organization
+- academics
+- enrollment
+- config (project settings and URL wiring)
 
-## Delivery Phases
+Optional integrations and operational extensions are tracked in `Enhancements.md` and `CURRENT_STATUS.md`.
 
-1. Foundation: settings, auth, base models, CI baseline
-2. Student core: enrollments, grades read APIs
-3. Professor core: grading and attendance write APIs
-4. Academic features: transcript, schedule, history
-5. Communication: announcements, notifications
-6. Integrations: webhooks and retries
-7. Admin management: CRUD and scoped access
-8. Testing, optimization, deployment hardening
+## Delivery Summary
 
-## Baseline Metrics (Target)
+1. Foundation delivered: settings, auth, RBAC, base models, CI baseline
+2. Student flows delivered: enrollment lifecycle, grades, transcript, schedule, history
+3. Professor flows delivered: grading, attendance, announcements
+4. Academic operations delivered: prerequisites, waitlist, GPA/transcript support
+5. Communication delivered: notifications, announcements, preference management
+6. Integrations delivered: webhook queueing/delivery with retries and scheduler commands
+7. Admin management delivered: scoped CRUD, analytics, audit-oriented endpoints
+8. Ongoing work: test depth expansion and production operations hardening
+
+## Baseline Metrics
 
 - 34+ tables
 - 50+ endpoints
 - 6 user roles
-- full scope parity with UniOne domain
+- scope parity with planned UniOne backend domain
