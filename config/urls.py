@@ -32,8 +32,33 @@ def api_root(_request):
     )
 
 
+from django.db import connections
+from django.core.cache import cache
+
 def health(_request):
-    return JsonResponse({"status": "ok", "service": "unione_django"})
+    health_status = {"status": "ok", "service": "unione_django", "checks": {}}
+    
+    # Check DB
+    try:
+        connections['default'].ensure_connection()
+        health_status["checks"]["database"] = "ok"
+    except Exception as e:
+        health_status["status"] = "error"
+        health_status["checks"]["database"] = f"error: {str(e)}"
+        
+    # Check Redis
+    try:
+        cache.set("health_check", "ok", timeout=5)
+        if cache.get("health_check") == "ok":
+            health_status["checks"]["redis"] = "ok"
+        else:
+            raise Exception("Redis get failed")
+    except Exception as e:
+        health_status["status"] = "error"
+        health_status["checks"]["redis"] = f"error: {str(e)}"
+
+    status_code = 200 if health_status["status"] == "ok" else 503
+    return JsonResponse(health_status, status=status_code)
 
 # V1 API URLs (versioned)
 v1_urlpatterns = [
