@@ -5,3 +5,7 @@ factory-boy
 coverage
 ruff
 black
+bandit
+mypy
+django-stubs
+djangorestframework-stubs
