@@ -18,11 +18,12 @@ Historical drafts in this file that listed large missing feature sets are obsole
 - Redis caching, API versioning, and CORS hardening.
 - PDF enhancements and production observability scaffolding.
 - GDPR endpoint support.
+- Production environment validation (PostgreSQL target path, SMTP/staging checks).
+- Operational hardening and deployment automation (Docker, CI/CD, Makefile).
 
 ## Remaining Work
 
-1. Production environment validation (PostgreSQL target path, SMTP/staging checks).
-2. Ongoing operational hardening and deployment automation improvements.
+1. Monitoring and performance tuning based on real-world traffic patterns.
 
 ## Notes
 
